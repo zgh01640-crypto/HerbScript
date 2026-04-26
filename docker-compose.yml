@@ -1,0 +1,47 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: herbscript-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root1234
+      MYSQL_DATABASE: herbscript
+      MYSQL_USER: herbscript
+      MYSQL_PASSWORD: herbscript123
+    ports:
+      - "3306:3306"
+    volumes:
+      - herbscript-mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: herbscript-backend
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: herbscript
+      DB_USERNAME: herbscript
+      DB_PASSWORD: herbscript123
+      DOUBAO_API_KEY: ${DOUBAO_API_KEY}
+      DOUBAO_BASE_URL: ${DOUBAO_BASE_URL}
+      DOUBAO_MODEL: ${DOUBAO_MODEL}
+      DOUBAO_CHAT_PATH: ${DOUBAO_CHAT_PATH}
+      DOUBAO_FALLBACK_TO_MOCK_ON_ERROR: ${DOUBAO_FALLBACK_TO_MOCK_ON_ERROR}
+    volumes:
+      - ./storage/uploads:/app/uploads
+    ports:
+      - "8081:8081"
+
+volumes:
+  herbscript-mysql-data:

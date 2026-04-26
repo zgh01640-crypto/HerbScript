@@ -1,0 +1,25 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: herbscript-backend
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:herbscript}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${DB_USERNAME:herbscript}
+    password: ${DB_PASSWORD:herbscript123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+herbscript:
+  recognition:
+    provider: doubao-seed-2-0-pro
+    upload-dir: ./uploads/prescriptions
+    doubao-base-url: ${DOUBAO_BASE_URL:https://ark.cn-beijing.volces.com/api/coding/v3}
+    doubao-model: ${DOUBAO_MODEL:doubao-seed-2-0-pro}
+    doubao-chat-path: ${DOUBAO_CHAT_PATH:/chat/completions}
+    doubao-api-key: ${DOUBAO_API_KEY:}
+    fallback-to-mock-on-error: ${DOUBAO_FALLBACK_TO_MOCK_ON_ERROR:true}
