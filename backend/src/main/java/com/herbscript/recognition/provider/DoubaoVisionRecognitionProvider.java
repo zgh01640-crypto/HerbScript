@@ -192,18 +192,18 @@ public class DoubaoVisionRecognitionProvider implements RecognitionProvider {
                 .replace("帖", "")
                 .trim();
 
-        Map<Character, Integer> digits = Map.of(
-                '零', 0,
-                '一', 1,
-                '二', 2,
-                '两', 2,
-                '三', 3,
-                '四', 4,
-                '五', 5,
-                '六', 6,
-                '七', 7,
-                '八', 8,
-                '九', 9
+        Map<Character, Integer> digits = Map.ofEntries(
+                Map.entry('零', 0),
+                Map.entry('一', 1),
+                Map.entry('二', 2),
+                Map.entry('两', 2),
+                Map.entry('三', 3),
+                Map.entry('四', 4),
+                Map.entry('五', 5),
+                Map.entry('六', 6),
+                Map.entry('七', 7),
+                Map.entry('八', 8),
+                Map.entry('九', 9)
         );
 
         if (normalized.length() == 1 && digits.containsKey(normalized.charAt(0))) {

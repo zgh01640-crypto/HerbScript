@@ -1,5 +1,6 @@
 package com.herbscript.recognition.dto;
 
+import com.herbscript.patient.dto.PatientDraftRequest;
 import com.herbscript.prescription.dto.PrescriptionItemSaveRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -9,6 +10,9 @@ import jakarta.validation.constraints.NotNull;
 import java.util.List;
 
 public record RecognitionConfirmRequest(
+        Long patientId,
+        @Valid
+        PatientDraftRequest patientDraft,
         @NotBlank(message = "患者姓名不能为空")
         String patientName,
         @NotBlank(message = "性别不能为空")

@@ -118,6 +118,24 @@ public class PrescriptionQueryService {
         return jdbcTemplate.query(sql.toString(), SUMMARY_ROW_MAPPER, args.toArray());
     }
 
+    public List<PrescriptionSummaryResponse> listByPatientId(Long patientId) {
+        return jdbcTemplate.query(
+                """
+                SELECT p.id, p.prescription_no, p.patient_name, p.gender, p.age,
+                       DATE_FORMAT(p.prescription_date, '%Y-%m-%d') AS prescription_date,
+                       p.dose_count, p.entry_mode, p.status,
+                       u.real_name AS created_by_name,
+                       DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+                FROM prescription p
+                LEFT JOIN sys_user u ON u.id = p.created_by
+                WHERE p.deleted = 0 AND p.patient_id = ?
+                ORDER BY p.prescription_date DESC, p.created_at DESC
+                """,
+                SUMMARY_ROW_MAPPER,
+                patientId
+        );
+    }
+
     public Optional<PrescriptionDetailResponse> getDetail(Long id) {
         List<PrescriptionDetailResponse> results = jdbcTemplate.query(
                 """
@@ -127,6 +145,7 @@ public class PrescriptionQueryService {
                        p.doctor_name, p.usage_method, p.entry_mode, p.status,
                        u.real_name AS created_by_name,
                        DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+                       p.patient_id,
                        rt.provider_name AS source_model,
                        p.source_image_url,
                        p.source_task_id
@@ -150,6 +169,7 @@ public class PrescriptionQueryService {
                        p.doctor_name, p.usage_method, p.entry_mode, p.status,
                        u.real_name AS created_by_name,
                        DATE_FORMAT(p.created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+                       p.patient_id,
                        rt.provider_name AS source_model,
                        p.source_image_url,
                        p.source_task_id
@@ -179,6 +199,7 @@ public class PrescriptionQueryService {
         return new PrescriptionDetailResponse(
                 prescriptionId,
                 rs.getString("prescription_no"),
+                rs.getObject("patient_id") == null ? null : rs.getLong("patient_id"),
                 rs.getString("patient_name"),
                 rs.getString("gender"),
                 rs.getInt("age"),

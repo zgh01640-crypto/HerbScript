@@ -34,11 +34,28 @@ CREATE TABLE IF NOT EXISTS sys_user_role (
   UNIQUE KEY uk_user_role (user_id, role_id)
 );
 
+CREATE TABLE IF NOT EXISTS patient (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  patient_no VARCHAR(64) NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  gender VARCHAR(16) NOT NULL,
+  age INT NOT NULL,
+  phone VARCHAR(32) NULL,
+  remark VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uk_patient_no (patient_no),
+  KEY idx_patient_name (name),
+  KEY idx_patient_phone (phone)
+);
+
 CREATE TABLE IF NOT EXISTS prescription (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   prescription_no VARCHAR(64) NOT NULL,
   hospital_name VARCHAR(128) NULL,
   prescription_type VARCHAR(64) NULL,
+  patient_id BIGINT NULL,
   patient_name VARCHAR(64) NOT NULL,
   gender VARCHAR(16) NOT NULL,
   age INT NOT NULL,

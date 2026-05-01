@@ -2,7 +2,12 @@ import { http } from "./http";
 import { dashboardSummary, prescriptions } from "../mocks/prescriptions";
 import type {
   DashboardSummary,
+  PatientDetail,
+  PatientMatchCandidate,
+  PatientMatchPayload,
+  PatientSummary,
   PrescriptionFilters,
+  PrescriptionSummary,
   RecognitionConfirmPayload,
   PrescriptionRecord,
   PrescriptionSavePayload
@@ -114,5 +119,31 @@ export const prescriptionService = {
     formData.append("file", file);
     const response = await http.postForm<ApiResponse<PrescriptionRecord>>("/api/recognitions/upload", formData);
     return response.data;
+  },
+
+  async matchPatients(payload: PatientMatchPayload): Promise<PatientMatchCandidate[]> {
+    const response = await http.post<ApiResponse<PatientMatchCandidate[]>>("/api/patients/match", payload);
+    return response.data;
+  },
+
+  async getPatientPrescriptions(patientId: number): Promise<PrescriptionSummary[]> {
+    const response = await http.get<ApiResponse<PrescriptionSummary[]>>(`/api/patients/${patientId}/prescriptions`);
+    return response.data;
+  },
+
+  async getPatientList(keyword = ""): Promise<PatientSummary[]> {
+    const response = await http.get<ApiResponse<PatientSummary[]>>("/api/patients", { keyword });
+    return response.data;
+  },
+
+  async getPatientDetail(patientId: number): Promise<PatientDetail> {
+    const response = await http.get<ApiResponse<PatientDetail>>(`/api/patients/${patientId}`);
+    return response.data;
+  },
+
+  async mergePatient(targetPatientId: number, sourcePatientId: number): Promise<void> {
+    await http.post<ApiResponse<null>>(`/api/patients/${targetPatientId}/merge`, {
+      sourcePatientId
+    });
   }
 };

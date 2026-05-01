@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import AppShell from "../components/AppShell.vue";
 import ConfidenceBadge from "../components/ConfidenceBadge.vue";
 import RecognitionUploader from "../components/RecognitionUploader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
-import type { PrescriptionItemInput, PrescriptionRecord } from "../types/prescription";
+import type { PatientMatchCandidate, PrescriptionItemInput, PrescriptionRecord } from "../types/prescription";
 
 type WorkbenchForm = {
   patientName: string;
@@ -28,6 +29,10 @@ const submitting = reactive({ confirm: false, upload: false });
 const errorMessage = reactive({ value: "" });
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
 const localPreviewUrl = ref("");
+const matching = ref(false);
+const matchedPatients = ref<PatientMatchCandidate[]>([]);
+const selectedPatientId = ref<number | null>(null);
+const patientChoiceMode = ref<"new" | "existing">("new");
 const streamedRecognitionJson = ref("");
 let streamTimer: number | null = null;
 const form = reactive<WorkbenchForm>({
@@ -52,6 +57,14 @@ const warnings = computed(() =>
   (data.value?.recognitionDraft?.warnings ?? []).filter((warning) => !hiddenWarnings.has(warning))
 );
 const lowConfidenceFields = computed(() => new Set(data.value?.recognitionDraft?.lowConfidenceFields ?? []));
+const recommendedPatient = computed(() => matchedPatients.value[0]);
+const matchedHistoryCount = computed(() => matchedPatients.value.reduce((total, candidate) => total + candidate.prescriptionCount, 0));
+const selectedPatient = computed(() => matchedPatients.value.find((candidate) => candidate.id === selectedPatientId.value) ?? null);
+const matchLevelLabelMap: Record<PatientMatchCandidate["matchLevel"], string> = {
+  high: "高置信",
+  medium: "中等置信",
+  low: "弱匹配"
+};
 const previewImageUrl = computed(() => {
   if (localPreviewUrl.value) {
     return localPreviewUrl.value;
@@ -69,7 +82,43 @@ const previewImageUrl = computed(() => {
 
   return `${apiBaseUrl}${sourceImageUrl.startsWith("/") ? sourceImageUrl : `/${sourceImageUrl}`}`;
 });
-const recognitionJsonSource = computed(() => data.value?.recognitionDraft?.rawText ?? "");
+const recognitionJsonSource = computed(() => {
+  const rawText = data.value?.recognitionDraft?.rawText?.trim();
+  if (rawText) {
+    return rawText;
+  }
+
+  if (!data.value) {
+    return "";
+  }
+
+  return JSON.stringify(
+    {
+      patientName: form.patientName,
+      gender: form.gender,
+      age: form.age,
+      department: form.department,
+      diagnosis: form.diagnosis,
+      doseCount: form.doseCount,
+      prescriptionDate: form.prescriptionDate,
+      doctorName: form.doctorName,
+      usageMethod: form.usageMethod,
+      warnings: warnings.value,
+      lowConfidenceFields: Array.from(lowConfidenceFields.value),
+      items: editableItems.map((item, index) => ({
+        sortNo: index + 1,
+        herbName: item.herbName,
+        rawHerbName: item.rawHerbName,
+        dosage: item.dosage,
+        unit: item.unit,
+        specialInstruction: item.specialInstruction
+      }))
+    },
+    null,
+    2
+  );
+});
+const hasRecognitionJson = computed(() => Boolean(recognitionJsonSource.value));
 
 const hydrateDraft = (record: PrescriptionRecord) => {
   form.patientName = record.patientName;
@@ -92,12 +141,20 @@ const hydrateDraft = (record: PrescriptionRecord) => {
   })));
 };
 
+const resetPatientMatching = () => {
+  matchedPatients.value = [];
+  selectedPatientId.value = null;
+  patientChoiceMode.value = "new";
+};
+
 const loadDraft = async () => {
   await run(() => prescriptionService.getRecognitionDraft());
 
   if (data.value) {
     hydrateDraft(data.value);
+    void runPatientMatch(true);
   } else {
+    resetPatientMatching();
     editableItems.splice(0, editableItems.length);
     form.patientName = "";
     form.gender = "";
@@ -120,6 +177,41 @@ const addItem = () => {
     unit: "g",
     specialInstruction: ""
   });
+};
+
+const runPatientMatch = async (silent = false) => {
+  if (!form.patientName || !form.gender || !form.age) {
+    if (!silent) {
+      ElMessage.warning("请先填写患者姓名、性别和年龄");
+    }
+    return;
+  }
+
+  matching.value = true;
+  try {
+    matchedPatients.value = await prescriptionService.matchPatients({
+      name: form.patientName,
+      gender: form.gender,
+      age: Number(form.age)
+    });
+    if (matchedPatients.value.length > 0) {
+      patientChoiceMode.value = "existing";
+      selectedPatientId.value = matchedPatients.value[0].id;
+      if (!silent) {
+        ElMessage.success(`已匹配到 ${matchedPatients.value.length} 个疑似患者档案`);
+      }
+    } else {
+      patientChoiceMode.value = "new";
+      selectedPatientId.value = null;
+      if (!silent) {
+        ElMessage.info("未匹配到近似患者，将按新患者处理");
+      }
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "患者匹配失败";
+  } finally {
+    matching.value = false;
+  }
 };
 
 const updateItemDosage = (index: number, value: string) => {
@@ -145,6 +237,14 @@ const confirmDraft = async () => {
 
   try {
     const result = await prescriptionService.confirmRecognitionDraft(data.value.recognitionDraft.taskId, {
+      patientId: patientChoiceMode.value === "existing" ? selectedPatientId.value ?? undefined : undefined,
+      patientDraft: patientChoiceMode.value === "new"
+        ? {
+            name: form.patientName,
+            gender: form.gender,
+            age: Number(form.age)
+          }
+        : undefined,
       patientName: form.patientName,
       gender: form.gender,
       age: Number(form.age),
@@ -180,6 +280,7 @@ const uploadImage = async (file: File) => {
     const record = await prescriptionService.uploadRecognitionImage(file);
     data.value = record;
     hydrateDraft(record);
+    void runPatientMatch(true);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "上传识别失败";
   } finally {
@@ -189,6 +290,16 @@ const uploadImage = async (file: File) => {
     }
     submitting.upload = false;
   }
+};
+
+const copyRecognitionJson = async () => {
+  if (!recognitionJsonSource.value) {
+    ElMessage.warning("当前没有可复制的识别结果");
+    return;
+  }
+
+  await navigator.clipboard.writeText(recognitionJsonSource.value);
+  ElMessage.success("识别 JSON 已复制");
 };
 
 onMounted(() => {
@@ -250,7 +361,12 @@ watch(
         </div>
       </div>
       <div v-if="submitting.upload" class="recognition-status-banner active">
-        正在上传图片并调用 AI 识别，请等待草稿生成...
+        <span>正在上传图片并调用 AI 识别，请等待草稿生成</span>
+        <span class="status-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
       </div>
       <p v-if="!loading && !data" class="login-tip">当前没有待校对草稿，请先上传一张处方图片。</p>
 
@@ -281,12 +397,18 @@ watch(
             <span>图片地址</span>
             <strong class="mono">{{ data.sourceImageUrl }}</strong>
           </div>
-          <div v-if="streamedRecognitionJson" class="json-stream-panel">
+          <div class="json-stream-panel">
             <div class="json-stream-head">
               <span>模型识别 JSON</span>
-              <strong>{{ data?.recognitionDraft?.providerName ?? "doubao-seed-2-0-pro" }}</strong>
+              <div class="json-stream-actions">
+                <strong>{{ data?.recognitionDraft?.providerName ?? "doubao-seed-2-0-pro" }}</strong>
+                <el-button text @click="copyRecognitionJson">复制</el-button>
+              </div>
             </div>
-            <pre class="json-stream-content">{{ streamedRecognitionJson }}</pre>
+            <pre v-if="streamedRecognitionJson" class="json-stream-content">{{ streamedRecognitionJson }}</pre>
+            <div v-else-if="!hasRecognitionJson" class="json-stream-empty">
+              识别结果将在上传图片并生成草稿后显示在这里。
+            </div>
           </div>
         </SectionCard>
 
@@ -305,6 +427,10 @@ watch(
             <div class="field-box">
               <label>年龄</label>
               <el-input v-model="form.age" />
+            </div>
+            <div class="field-box field-box-action">
+              <label>患者匹配</label>
+              <el-button :loading="matching" @click="runPatientMatch">匹配已有患者</el-button>
             </div>
             <div class="field-box">
               <label>科室</label>
@@ -338,6 +464,61 @@ watch(
               <label>备注</label>
               <el-input v-model="form.remark" />
             </div>
+          </div>
+
+          <div class="patient-match-panel">
+            <div class="patient-match-head">
+              <strong>患者确认</strong>
+              <p>系统会先根据姓名、性别和年龄推荐近似患者，再由你确认是否复用已有患者档案。</p>
+            </div>
+            <div v-if="matchedPatients.length > 0" class="match-result-banner">
+              <strong>已自动匹配 {{ matchedPatients.length }} 个疑似患者档案。</strong>
+              <span v-if="recommendedPatient">
+                推荐关联 {{ recommendedPatient.name }}，该患者已有 {{ recommendedPatient.prescriptionCount }} 张处方
+                <template v-if="recommendedPatient.lastPrescriptionDate">，最近一次为 {{ recommendedPatient.lastPrescriptionDate }}</template>。
+              </span>
+            </div>
+            <el-radio-group v-model="patientChoiceMode">
+              <el-radio-button label="new">新建患者档案</el-radio-button>
+              <el-radio-button label="existing" :disabled="matchedPatients.length === 0">关联已有患者</el-radio-button>
+            </el-radio-group>
+
+            <div v-if="matchedPatients.length > 0" class="patient-match-overview">
+              <div class="patient-match-stat">
+                <span>疑似患者</span>
+                <strong>{{ matchedPatients.length }} 个</strong>
+              </div>
+              <div class="patient-match-stat">
+                <span>历史处方</span>
+                <strong>{{ matchedHistoryCount }} 张</strong>
+              </div>
+              <div v-if="selectedPatient" class="patient-match-stat emphasized">
+                <span>当前选择</span>
+                <strong>{{ selectedPatient.name }} · {{ matchLevelLabelMap[selectedPatient.matchLevel] }}</strong>
+              </div>
+            </div>
+
+            <div v-if="matchedPatients.length > 0" class="patient-candidate-list">
+              <label
+                v-for="candidate in matchedPatients"
+                :key="candidate.id"
+                class="patient-candidate"
+                :class="{ selected: selectedPatientId === candidate.id && patientChoiceMode === 'existing' }"
+              >
+                <input v-model="selectedPatientId" type="radio" :value="candidate.id" :disabled="patientChoiceMode !== 'existing'" />
+                <div class="patient-candidate-body">
+                  <div class="patient-candidate-main">
+                    <strong>{{ candidate.name }} / {{ candidate.gender }} / {{ candidate.age }}岁</strong>
+                    <span>{{ candidate.patientNo }} · {{ matchLevelLabelMap[candidate.matchLevel] }} · 历史处方 {{ candidate.prescriptionCount }} 张</span>
+                  </div>
+                  <div class="patient-candidate-side">
+                    <span class="patient-match-badge" :class="candidate.matchLevel">{{ matchLevelLabelMap[candidate.matchLevel] }}</span>
+                    <small v-if="candidate.lastPrescriptionDate">最近处方 {{ candidate.lastPrescriptionDate }}</small>
+                  </div>
+                </div>
+              </label>
+            </div>
+            <p v-else class="login-tip">当前没有匹配到近似患者，确认入库时会自动创建新的患者主档。</p>
           </div>
 
           <div class="items-head">

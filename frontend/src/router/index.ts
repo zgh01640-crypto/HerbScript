@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from "vue-router";
 import { authService } from "../services/authService";
 import DashboardView from "../views/DashboardView.vue";
 import LoginView from "../views/LoginView.vue";
+import PatientDetailView from "../views/PatientDetailView.vue";
+import PatientListView from "../views/PatientListView.vue";
 import PrescriptionDetailView from "../views/PrescriptionDetailView.vue";
 import PrescriptionEditView from "../views/PrescriptionEditView.vue";
 import PrescriptionListView from "../views/PrescriptionListView.vue";
@@ -27,6 +29,16 @@ const routes = [
     path: "/prescriptions",
     name: "prescriptions",
     component: PrescriptionListView
+  },
+  {
+    path: "/patients",
+    name: "patients",
+    component: PatientListView
+  },
+  {
+    path: "/patients/:id",
+    name: "patient-detail",
+    component: PatientDetailView
   },
   {
     path: "/prescriptions/new",

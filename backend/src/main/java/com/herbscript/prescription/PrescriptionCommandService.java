@@ -1,5 +1,6 @@
 package com.herbscript.prescription;
 
+import com.herbscript.patient.PatientService;
 import com.herbscript.prescription.dto.PrescriptionCreateResponse;
 import com.herbscript.prescription.dto.PrescriptionItemSaveRequest;
 import com.herbscript.prescription.dto.PrescriptionSaveRequest;
@@ -21,37 +22,47 @@ import org.springframework.web.server.ResponseStatusException;
 public class PrescriptionCommandService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final PatientService patientService;
 
-    public PrescriptionCommandService(JdbcTemplate jdbcTemplate) {
+    public PrescriptionCommandService(JdbcTemplate jdbcTemplate, PatientService patientService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.patientService = patientService;
     }
 
     @Transactional
     public PrescriptionCreateResponse createManualPrescription(PrescriptionSaveRequest request) {
         String prescriptionNo = nextPrescriptionNo();
+        Long patientId = patientService.resolvePatientId(
+                request.patientId(),
+                request.patientDraft(),
+                request.patientName(),
+                request.gender(),
+                request.age()
+        );
         KeyHolder keyHolder = new GeneratedKeyHolder();
 
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
                     INSERT INTO prescription
-                    (prescription_no, hospital_name, prescription_type, patient_name, gender, age,
+                    (prescription_no, hospital_name, prescription_type, patient_id, patient_name, gender, age,
                      department, diagnosis, dose_count, prescription_date, doctor_name, usage_method,
                      remark, entry_mode, status, created_by, updated_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'verified', 1, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'verified', 1, 1)
                     """, Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, prescriptionNo);
             ps.setString(2, request.hospitalName());
             ps.setString(3, request.prescriptionType());
-            ps.setString(4, request.patientName());
-            ps.setString(5, request.gender());
-            ps.setInt(6, request.age());
-            ps.setString(7, request.department());
-            ps.setString(8, request.diagnosis());
-            ps.setInt(9, request.doseCount());
-            ps.setString(10, request.prescriptionDate());
-            ps.setString(11, request.doctorName());
-            ps.setString(12, request.usageMethod());
-            ps.setString(13, request.remark());
+            ps.setLong(4, patientId);
+            ps.setString(5, request.patientName());
+            ps.setString(6, request.gender());
+            ps.setInt(7, request.age());
+            ps.setString(8, request.department());
+            ps.setString(9, request.diagnosis());
+            ps.setInt(10, request.doseCount());
+            ps.setString(11, request.prescriptionDate());
+            ps.setString(12, request.doctorName());
+            ps.setString(13, request.usageMethod());
+            ps.setString(14, request.remark());
             return ps;
         }, keyHolder);
 
@@ -105,14 +116,23 @@ public class PrescriptionCommandService {
                 taskId
         ).stream().findFirst().orElseThrow(() -> new IllegalArgumentException("识别草稿不存在"));
 
+        Long patientId = patientService.resolvePatientId(
+                request.patientId(),
+                request.patientDraft(),
+                request.patientName(),
+                request.gender(),
+                request.age()
+        );
+
         jdbcTemplate.update("""
                 UPDATE prescription
-                SET patient_name = ?, gender = ?, age = ?, department = ?, diagnosis = ?,
+                SET patient_id = ?, patient_name = ?, gender = ?, age = ?, department = ?, diagnosis = ?,
                     dose_count = ?, prescription_date = ?, doctor_name = ?, usage_method = ?,
                     remark = ?, status = 'verified', updated_by = 1, updated_at = NOW(),
                     verified_by = 1, verified_at = NOW()
                 WHERE id = ?
                 """,
+                patientId,
                 request.patientName(),
                 request.gender(),
                 request.age(),
@@ -202,15 +222,31 @@ public class PrescriptionCommandService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "处方不存在");
         }
 
+        Long currentPatientId = jdbcTemplate.queryForObject(
+                "SELECT patient_id FROM prescription WHERE id = ?",
+                Long.class,
+                id
+        );
+        Long patientId = request.patientId() != null || request.patientDraft() != null
+                ? patientService.resolvePatientId(
+                        request.patientId(),
+                        request.patientDraft(),
+                        request.patientName(),
+                        request.gender(),
+                        request.age()
+                )
+                : currentPatientId;
+
         jdbcTemplate.update("""
                 UPDATE prescription
-                SET hospital_name = ?, prescription_type = ?, patient_name = ?, gender = ?, age = ?,
+                SET hospital_name = ?, prescription_type = ?, patient_id = ?, patient_name = ?, gender = ?, age = ?,
                     department = ?, diagnosis = ?, dose_count = ?, prescription_date = ?, doctor_name = ?,
                     usage_method = ?, remark = ?, updated_by = 1, updated_at = NOW()
                 WHERE id = ?
                 """,
                 request.hospitalName(),
                 request.prescriptionType(),
+                patientId,
                 request.patientName(),
                 request.gender(),
                 request.age(),

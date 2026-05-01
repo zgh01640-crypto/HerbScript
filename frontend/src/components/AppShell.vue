@@ -13,6 +13,7 @@ const menuItems = [
   { label: "概览", path: "/dashboard", badge: "概览" },
   { label: "处方列表", path: "/prescriptions", badge: "核心" },
   { label: "处方识别", path: "/recognition", badge: "AI" },
+  { label: "患者管理", path: "/patients", badge: "档案" },
   { label: "药材字典", path: "/herbs", badge: "标准" },
   { label: "用户管理", path: "/users", badge: "权限" }
 ];
@@ -20,6 +21,10 @@ const menuItems = [
 const pageTitle = computed(() => {
   if (route.path.startsWith("/prescriptions/")) {
     return "处方详情";
+  }
+
+  if (route.path.startsWith("/patients/")) {
+    return "患者详情";
   }
 
   const current = menuItems.find((item) => item.path === route.path);

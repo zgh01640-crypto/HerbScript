@@ -7,14 +7,24 @@ import SectionCard from "../components/SectionCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
-import type { PrescriptionRecord } from "../types/prescription";
+import type { PrescriptionRecord, PrescriptionSummary } from "../types/prescription";
 
 const route = useRoute();
 const router = useRouter();
 const prescriptionId = computed(() => Number(route.params.id));
 const { data, loading, run } = useAsyncState<PrescriptionRecord | undefined>();
+const patientHistory = ref<PrescriptionSummary[]>([]);
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
 const imagePreviewVisible = ref(false);
+const patientHistoryCount = computed(() => patientHistory.value.length + (data.value?.patientId ? 1 : 0));
+const latestPrescriptionDate = computed(() => {
+  const dates = [
+    data.value?.prescriptionDate,
+    ...patientHistory.value.map((item) => item.prescriptionDate)
+  ].filter(Boolean) as string[];
+
+  return dates.sort((a, b) => b.localeCompare(a))[0] ?? "";
+});
 const previewImageUrl = computed(() => {
   const sourceImageUrl = data.value?.sourceImageUrl;
 
@@ -30,7 +40,16 @@ const previewImageUrl = computed(() => {
 });
 
 onMounted(() => {
-  void run(() => prescriptionService.getPrescriptionDetail(prescriptionId.value));
+  void run(async () => {
+    const detail = await prescriptionService.getPrescriptionDetail(prescriptionId.value);
+    if (detail?.patientId) {
+      patientHistory.value = (await prescriptionService.getPatientPrescriptions(detail.patientId))
+        .filter((item) => item.id !== detail.id);
+    } else {
+      patientHistory.value = [];
+    }
+    return detail;
+  });
 });
 
 const removePrescription = async () => {
@@ -130,6 +149,44 @@ const openImagePreview = () => {
             <strong>{{ log.time }}</strong>
             <span>{{ log.content }}</span>
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="患者历史处方" subtitle="同一患者的既往处方记录">
+        <div v-if="data?.patientId" class="history-overview">
+          <div class="history-overview-item">
+            <span>所属患者</span>
+            <strong>{{ data.patientName }}</strong>
+          </div>
+          <div class="history-overview-item">
+            <span>累计处方</span>
+            <strong>{{ patientHistoryCount }} 张</strong>
+          </div>
+          <div v-if="latestPrescriptionDate" class="history-overview-item">
+            <span>最近处方</span>
+            <strong>{{ latestPrescriptionDate }}</strong>
+          </div>
+        </div>
+        <div v-if="patientHistory.length > 0" class="record-list">
+          <button
+            v-for="item in patientHistory"
+            :key="item.id"
+            type="button"
+            class="record-row record-button"
+            @click="router.push(`/prescriptions/${item.id}`)"
+          >
+            <div>
+              <strong>{{ item.prescriptionDate }} · {{ item.patientName }}</strong>
+              <span>{{ item.prescriptionNo }} · {{ item.doseCount }}剂 · {{ item.entryMode === "manual" ? "手动录入" : "AI识别" }}</span>
+            </div>
+            <div class="history-record-side">
+              <small>{{ item.createdAt }}</small>
+              <StatusPill :status="item.status" />
+            </div>
+          </button>
+        </div>
+        <div v-else class="detail-image-empty">
+          当前患者暂无其他历史处方
         </div>
       </SectionCard>
 

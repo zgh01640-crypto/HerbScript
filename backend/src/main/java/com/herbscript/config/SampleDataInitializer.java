@@ -1,5 +1,6 @@
 package com.herbscript.config;
 
+import com.herbscript.patient.PatientService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -8,19 +9,31 @@ import org.springframework.stereotype.Component;
 public class SampleDataInitializer implements CommandLineRunner {
 
     private final JdbcTemplate jdbcTemplate;
+    private final PatientService patientService;
 
-    public SampleDataInitializer(JdbcTemplate jdbcTemplate) {
+    public SampleDataInitializer(JdbcTemplate jdbcTemplate, PatientService patientService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.patientService = patientService;
     }
 
     @Override
     public void run(String... args) {
+        ensurePatientSchema();
         jdbcTemplate.update("UPDATE sys_user SET real_name = ? WHERE id = 1", "系统管理员");
+        patientService.ensurePatientBackfill();
 
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM prescription", Integer.class);
         if (count != null && count > 0) {
             return;
         }
+
+        jdbcTemplate.update("""
+                INSERT INTO patient (id, patient_no, name, gender, age, remark)
+                VALUES
+                (1, 'PT202604210001', '王秀兰', '女', 58, '示例患者'),
+                (2, 'PT202604210002', '赵明德', '男', 43, '示例患者'),
+                (3, 'PT202604210003', '刘海峰', '男', 39, '示例患者')
+                """);
 
         jdbcTemplate.update("""
                 INSERT INTO recognition_task
@@ -32,14 +45,14 @@ public class SampleDataInitializer implements CommandLineRunner {
 
         jdbcTemplate.update("""
                 INSERT INTO prescription
-                (id, prescription_no, patient_name, gender, age, department, diagnosis, dose_count, prescription_date,
+                (id, prescription_no, patient_id, patient_name, gender, age, department, diagnosis, dose_count, prescription_date,
                  doctor_name, usage_method, entry_mode, status, source_image_url, source_task_id, created_by, created_at, updated_at)
                 VALUES
-                (1, 'HS202604210012', '王秀兰', '女', 58, '内科', '脾胃虚弱', 7, '2026-04-21',
+                (1, 'HS202604210012', 1, '王秀兰', '女', 58, '内科', '脾胃虚弱', 7, '2026-04-21',
                  '李医生', '水煎服，每日一剂', 'ai_recognition', 'pending_review', '/mock/prescriptions/1.png', 2001, 1, '2026-04-21 10:22:00', '2026-04-21 10:22:00'),
-                (2, 'HS202604210011', '赵明德', '男', 43, '脾胃病科', '食少乏力', 5, '2026-04-21',
+                (2, 'HS202604210011', 2, '赵明德', '男', 43, '脾胃病科', '食少乏力', 5, '2026-04-21',
                  '陈医生', '温水煎服', 'manual', 'verified', NULL, NULL, 1, '2026-04-21 09:46:00', '2026-04-21 09:46:00'),
-                (3, 'HS202604210010', '刘海峰', '男', 39, '肝胆科', '肝郁气滞', 6, '2026-04-20',
+                (3, 'HS202604210010', 3, '刘海峰', '男', 39, '肝胆科', '肝郁气滞', 6, '2026-04-20',
                  '孙医生', '煎服，分早晚两次', 'ai_recognition', 'archived', '/mock/prescriptions/3.png', 2002, 1, '2026-04-20 16:31:00', '2026-04-20 16:31:00')
                 """);
 
@@ -80,5 +93,40 @@ public class SampleDataInitializer implements CommandLineRunner {
                 (6, 1, '录入员王芳', 'prescription', 'confirm', 'prescription', 3, '录入员完成校对并确认入库。', '2026-04-20 16:27:00'),
                 (7, 1, '系统管理员', 'prescription', 'archive', 'prescription', 3, '管理员复核并归档处方。', '2026-04-20 16:31:00')
                 """);
+    }
+
+    private void ensurePatientSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS patient (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  patient_no VARCHAR(64) NOT NULL,
+                  name VARCHAR(64) NOT NULL,
+                  gender VARCHAR(16) NOT NULL,
+                  age INT NOT NULL,
+                  phone VARCHAR(32) NULL,
+                  remark VARCHAR(255) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted TINYINT NOT NULL DEFAULT 0,
+                  UNIQUE KEY uk_patient_no (patient_no),
+                  KEY idx_patient_name (name),
+                  KEY idx_patient_phone (phone)
+                )
+                """);
+
+        Integer patientIdColumnCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'prescription'
+                  AND COLUMN_NAME = 'patient_id'
+                """,
+                Integer.class
+        );
+
+        if (patientIdColumnCount == null || patientIdColumnCount == 0) {
+            jdbcTemplate.execute("ALTER TABLE prescription ADD COLUMN patient_id BIGINT NULL AFTER prescription_type");
+        }
     }
 }

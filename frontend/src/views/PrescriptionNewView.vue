@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { reactive, ref } from "vue";
+import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import AppShell from "../components/AppShell.vue";
 import SectionCard from "../components/SectionCard.vue";
 import { prescriptionService } from "../services/prescriptionService";
-import type { PrescriptionItemInput, PrescriptionSavePayload } from "../types/prescription";
+import type { PatientMatchCandidate, PrescriptionItemInput, PrescriptionSavePayload } from "../types/prescription";
 
 const router = useRouter();
 const saving = ref(false);
 const errorMessage = ref("");
+const matching = ref(false);
+const matchedPatients = ref<PatientMatchCandidate[]>([]);
+const selectedPatientId = ref<number | null>(null);
+const patientChoiceMode = ref<"new" | "existing">("new");
 
 const form = reactive<PrescriptionSavePayload>({
   hospitalName: "本草中医馆",
@@ -51,6 +56,33 @@ const removeItem = (index: number) => {
   });
 };
 
+const runPatientMatch = async () => {
+  if (!form.patientName || !form.gender || !form.age) {
+    ElMessage.warning("请先填写患者姓名、性别和年龄");
+    return;
+  }
+
+  matching.value = true;
+  try {
+    matchedPatients.value = await prescriptionService.matchPatients({
+      name: form.patientName,
+      gender: form.gender,
+      age: form.age
+    });
+    if (matchedPatients.value.length > 0) {
+      patientChoiceMode.value = "existing";
+      selectedPatientId.value = matchedPatients.value[0].id;
+    } else {
+      patientChoiceMode.value = "new";
+      selectedPatientId.value = null;
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "患者匹配失败";
+  } finally {
+    matching.value = false;
+  }
+};
+
 const submit = async () => {
   saving.value = true;
   errorMessage.value = "";
@@ -58,6 +90,14 @@ const submit = async () => {
   try {
     const payload: PrescriptionSavePayload = {
       ...form,
+      patientId: patientChoiceMode.value === "existing" ? selectedPatientId.value ?? undefined : undefined,
+      patientDraft: patientChoiceMode.value === "new"
+        ? {
+            name: form.patientName,
+            gender: form.gender,
+            age: form.age
+          }
+        : undefined,
       items: form.items.map((item: PrescriptionItemInput, index) => ({
         ...item,
         sortNo: index + 1
@@ -92,6 +132,10 @@ const submit = async () => {
           <label>年龄</label>
           <el-input-number v-model="form.age" :min="0" :max="120" style="width: 100%" />
         </div>
+        <div class="field-box field-box-action">
+          <label>患者匹配</label>
+          <el-button :loading="matching" @click="runPatientMatch">匹配已有患者</el-button>
+        </div>
         <div class="field-box">
           <label>科室</label>
           <el-input v-model="form.department" placeholder="例如：内科" />
@@ -120,6 +164,33 @@ const submit = async () => {
           <label>备注</label>
           <el-input v-model="form.remark" placeholder="可填写补充说明" />
         </div>
+      </div>
+
+      <div class="patient-match-panel">
+        <div class="patient-match-head">
+          <strong>患者确认</strong>
+          <p>同一患者可关联多张处方，系统先给出近似匹配候选，再由人工确认。</p>
+        </div>
+        <el-radio-group v-model="patientChoiceMode">
+          <el-radio-button label="new">新建患者档案</el-radio-button>
+          <el-radio-button label="existing" :disabled="matchedPatients.length === 0">关联已有患者</el-radio-button>
+        </el-radio-group>
+
+        <div v-if="matchedPatients.length > 0" class="patient-candidate-list">
+          <label
+            v-for="candidate in matchedPatients"
+            :key="candidate.id"
+            class="patient-candidate"
+            :class="{ selected: selectedPatientId === candidate.id && patientChoiceMode === 'existing' }"
+          >
+            <input v-model="selectedPatientId" type="radio" :value="candidate.id" :disabled="patientChoiceMode !== 'existing'" />
+            <div>
+              <strong>{{ candidate.name }} / {{ candidate.gender }} / {{ candidate.age }}岁</strong>
+              <span>{{ candidate.patientNo }} · {{ candidate.matchLevel }} 匹配 · 历史处方 {{ candidate.prescriptionCount }} 张</span>
+            </div>
+          </label>
+        </div>
+        <p v-else class="login-tip">当前没有匹配到近似患者，保存时将创建新的患者主档。</p>
       </div>
 
       <div class="items-head">
