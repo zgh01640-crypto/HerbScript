@@ -8,12 +8,13 @@ const router = useRouter();
 const route = useRoute();
 const currentUser = computed(() => authService.getStoredUser());
 const pendingReviewCount = ref<number>(0);
+const isRecognitionPage = computed(() => route.path === "/recognition");
 
 const menuItems = [
   { label: "概览", path: "/dashboard", badge: "概览" },
-  { label: "处方列表", path: "/prescriptions", badge: "核心" },
-  { label: "处方识别", path: "/recognition", badge: "AI" },
   { label: "患者管理", path: "/patients", badge: "档案" },
+  { label: "处方识别", path: "/recognition", badge: "AI" },
+  { label: "处方列表", path: "/prescriptions", badge: "核心" },
   { label: "药材字典", path: "/herbs", badge: "标准" },
   { label: "用户管理", path: "/users", badge: "权限" }
 ];
@@ -79,7 +80,10 @@ onMounted(async () => {
     <div class="main-panel">
       <header class="topbar">
         <div>
-          <div class="eyebrow">TCM Prescription Platform</div>
+          <div class="eyebrow">
+            <span>TCM Prescription Platform</span>
+            <span v-if="isRecognitionPage" class="eyebrow-model">Vision Model · doubao-seed-2-0-pro</span>
+          </div>
           <h1>{{ pageTitle }}</h1>
         </div>
         <div class="topbar-meta">

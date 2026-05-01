@@ -7,7 +7,7 @@ import SectionCard from "../components/SectionCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
-import type { PrescriptionRecord, PrescriptionSummary } from "../types/prescription";
+import type { PrescriptionItemInput, PrescriptionRecord, PrescriptionSummary } from "../types/prescription";
 
 const route = useRoute();
 const router = useRouter();
@@ -16,6 +16,8 @@ const { data, loading, run } = useAsyncState<PrescriptionRecord | undefined>();
 const patientHistory = ref<PrescriptionSummary[]>([]);
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
 const imagePreviewVisible = ref(false);
+const previewSaving = ref(false);
+const previewEditableItems = ref<PrescriptionItemInput[]>([]);
 const patientHistoryCount = computed(() => patientHistory.value.length + (data.value?.patientId ? 1 : 0));
 const latestPrescriptionDate = computed(() => {
   const dates = [
@@ -39,8 +41,19 @@ const previewImageUrl = computed(() => {
   return `${apiBaseUrl}${sourceImageUrl.startsWith("/") ? sourceImageUrl : `/${sourceImageUrl}`}`;
 });
 
-onMounted(() => {
-  void run(async () => {
+const syncPreviewItems = () => {
+  previewEditableItems.value = (data.value?.items ?? []).map((item, index) => ({
+    sortNo: index + 1,
+    herbName: item.herbName,
+    rawHerbName: item.rawHerbName,
+    dosage: item.dosage,
+    unit: item.unit,
+    specialInstruction: item.specialInstruction
+  }));
+};
+
+const loadDetail = async () => {
+  await run(async () => {
     const detail = await prescriptionService.getPrescriptionDetail(prescriptionId.value);
     if (detail?.patientId) {
       patientHistory.value = (await prescriptionService.getPatientPrescriptions(detail.patientId))
@@ -50,6 +63,11 @@ onMounted(() => {
     }
     return detail;
   });
+  syncPreviewItems();
+};
+
+onMounted(() => {
+  void loadDetail();
 });
 
 const removePrescription = async () => {
@@ -67,7 +85,44 @@ const removePrescription = async () => {
 
 const openImagePreview = () => {
   if (previewImageUrl.value) {
+    syncPreviewItems();
     imagePreviewVisible.value = true;
+  }
+};
+
+const updatePreviewDosage = (index: number, value: string) => {
+  previewEditableItems.value[index].dosage = value.trim() === "" ? 0 : Number(value);
+};
+
+const savePreviewItems = async () => {
+  if (!data.value) {
+    return;
+  }
+
+  previewSaving.value = true;
+  try {
+    await prescriptionService.updatePrescription(data.value.id, {
+      patientId: data.value.patientId,
+      patientName: data.value.patientName,
+      gender: data.value.gender,
+      age: data.value.age,
+      department: data.value.department,
+      diagnosis: data.value.diagnosis,
+      doseCount: data.value.doseCount,
+      prescriptionDate: data.value.prescriptionDate,
+      doctorName: data.value.doctorName,
+      usageMethod: data.value.usageMethod,
+      items: previewEditableItems.value.map((item, index) => ({
+        ...item,
+        sortNo: index + 1
+      }))
+    });
+    ElMessage.success("药味修改已保存");
+    await loadDetail();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "保存药味失败");
+  } finally {
+    previewSaving.value = false;
   }
 };
 </script>
@@ -190,9 +245,38 @@ const openImagePreview = () => {
         </div>
       </SectionCard>
 
-      <el-dialog v-model="imagePreviewVisible" title="处方原图" width="56%" top="2vh">
-        <div class="preview-dialog-body">
-          <img v-if="previewImageUrl" :src="previewImageUrl" alt="处方原图放大预览" class="preview-dialog-image" />
+      <el-dialog v-model="imagePreviewVisible" title="处方原图对照" width="82%" top="1vh">
+        <div class="preview-compare-layout">
+          <div class="preview-dialog-body">
+            <img v-if="previewImageUrl" :src="previewImageUrl" alt="处方原图放大预览" class="preview-dialog-image" />
+          </div>
+          <div class="preview-compare-panel">
+            <div class="preview-compare-head compact">
+              <div>
+                <span>患者姓名</span>
+                <strong>{{ data?.patientName ?? "-" }}</strong>
+              </div>
+              <el-button type="primary" class="preview-save-button" :loading="previewSaving" @click="savePreviewItems">保存药味</el-button>
+            </div>
+
+            <div class="preview-compare-list">
+              <div v-for="(item, index) in previewEditableItems" :key="`${item.sortNo}-${index}`" class="preview-compare-row editable">
+                <div class="preview-compare-index">{{ index + 1 }}</div>
+                <div class="preview-compare-main">
+                  <el-input v-model="item.herbName" />
+                </div>
+                <div class="preview-compare-editors">
+                  <el-input
+                    :model-value="String(item.dosage ?? '')"
+                    placeholder="剂量"
+                    inputmode="decimal"
+                    @update:model-value="updatePreviewDosage(index, $event)"
+                  />
+                  <el-input v-model="item.unit" placeholder="单位" />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </el-dialog>
     </div>

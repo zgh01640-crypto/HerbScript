@@ -4,7 +4,6 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import AppShell from "../components/AppShell.vue";
 import ConfidenceBadge from "../components/ConfidenceBadge.vue";
-import RecognitionUploader from "../components/RecognitionUploader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
@@ -29,7 +28,10 @@ const submitting = reactive({ confirm: false, upload: false });
 const errorMessage = reactive({ value: "" });
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
 const localPreviewUrl = ref("");
+const imageUploadInput = ref<HTMLInputElement | null>(null);
+const dragActive = ref(false);
 const matching = ref(false);
+const detailPanelExpanded = ref(false);
 const matchedPatients = ref<PatientMatchCandidate[]>([]);
 const selectedPatientId = ref<number | null>(null);
 const patientChoiceMode = ref<"new" | "existing">("new");
@@ -48,14 +50,14 @@ const form = reactive<WorkbenchForm>({
   remark: ""
 });
 const editableItems = reactive<PrescriptionItemInput[]>([]);
-const hiddenWarnings = new Set([
-  "当前为 Doubao 本地 mock 草稿，待接真实模型响应。"
-]);
+const hiddenWarnings = new Set<string>();
+const mockFallbackMessage = "当前为 Doubao 本地 mock 草稿，待接真实模型响应。";
 
 const items = computed(() => editableItems);
 const warnings = computed(() =>
   (data.value?.recognitionDraft?.warnings ?? []).filter((warning) => !hiddenWarnings.has(warning))
 );
+const isMockFallback = computed(() => (data.value?.recognitionDraft?.warnings ?? []).includes(mockFallbackMessage));
 const lowConfidenceFields = computed(() => new Set(data.value?.recognitionDraft?.lowConfidenceFields ?? []));
 const recommendedPatient = computed(() => matchedPatients.value[0]);
 const matchedHistoryCount = computed(() => matchedPatients.value.reduce((total, candidate) => total + candidate.prescriptionCount, 0));
@@ -119,6 +121,18 @@ const recognitionJsonSource = computed(() => {
   );
 });
 const hasRecognitionJson = computed(() => Boolean(recognitionJsonSource.value));
+const formSummary = computed(() => {
+  const parts = [
+    form.patientName ? `${form.patientName}` : "未填姓名",
+    form.gender || "未填性别",
+    form.age ? `${form.age}岁` : "未填年龄",
+    form.diagnosis || "未填诊断",
+    form.doseCount ? `${form.doseCount}剂` : "未填剂数",
+    form.prescriptionDate || "未填日期"
+  ];
+
+  return parts.join(" / ");
+});
 
 const hydrateDraft = (record: PrescriptionRecord) => {
   form.patientName = record.patientName;
@@ -147,26 +161,20 @@ const resetPatientMatching = () => {
   patientChoiceMode.value = "new";
 };
 
-const loadDraft = async () => {
-  await run(() => prescriptionService.getRecognitionDraft());
-
-  if (data.value) {
-    hydrateDraft(data.value);
-    void runPatientMatch(true);
-  } else {
-    resetPatientMatching();
-    editableItems.splice(0, editableItems.length);
-    form.patientName = "";
-    form.gender = "";
-    form.age = "";
-    form.department = "";
-    form.diagnosis = "";
-    form.doseCount = "";
-    form.prescriptionDate = "";
-    form.usageMethod = "";
-    form.doctorName = "";
-    form.remark = "";
-  }
+const resetWorkbench = () => {
+  data.value = undefined;
+  resetPatientMatching();
+  editableItems.splice(0, editableItems.length);
+  form.patientName = "";
+  form.gender = "";
+  form.age = "";
+  form.department = "";
+  form.diagnosis = "";
+  form.doseCount = "";
+  form.prescriptionDate = "";
+  form.usageMethod = "";
+  form.doctorName = "";
+  form.remark = "";
 };
 
 const addItem = () => {
@@ -292,6 +300,40 @@ const uploadImage = async (file: File) => {
   }
 };
 
+const openImagePicker = () => {
+  imageUploadInput.value?.click();
+};
+
+const handleImageInputChange = (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  void uploadImage(file);
+  input.value = "";
+};
+
+const handleDragOver = (event: DragEvent) => {
+  event.preventDefault();
+  dragActive.value = true;
+};
+
+const handleDragLeave = (event: DragEvent) => {
+  event.preventDefault();
+  dragActive.value = false;
+};
+
+const handleDrop = (event: DragEvent) => {
+  event.preventDefault();
+  dragActive.value = false;
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) {
+    return;
+  }
+  void uploadImage(file);
+};
+
 const copyRecognitionJson = async () => {
   if (!recognitionJsonSource.value) {
     ElMessage.warning("当前没有可复制的识别结果");
@@ -303,7 +345,7 @@ const copyRecognitionJson = async () => {
 };
 
 onMounted(() => {
-  void loadDraft();
+  resetWorkbench();
 });
 
 onBeforeUnmount(() => {
@@ -346,30 +388,6 @@ watch(
 <template>
   <AppShell>
     <div v-loading="loading" class="recognition-page">
-      <div class="recognition-topbar">
-        <div class="recognition-alert">
-          <span class="recognition-alert-label">当前工作台</span>
-          <div class="recognition-alert-main">
-            <strong>{{ data?.recognitionDraft?.providerName ?? "doubao-seed-2-0-pro" }}</strong>
-            <span class="recognition-alert-chip">低置信字段 {{ lowConfidenceFields.size }}</span>
-          </div>
-          <p>先核对左侧原图，再确认入库。</p>
-        </div>
-
-        <div class="recognition-upload-panel">
-          <RecognitionUploader @uploaded="uploadImage" />
-        </div>
-      </div>
-      <div v-if="submitting.upload" class="recognition-status-banner active">
-        <span>正在上传图片并调用 AI 识别，请等待草稿生成</span>
-        <span class="status-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-      </div>
-      <p v-if="!loading && !data" class="login-tip">当前没有待校对草稿，请先上传一张处方图片。</p>
-
       <div v-if="warnings.length" class="warning-stack">
         <div v-for="warning in warnings" :key="warning" class="warning-chip">
           {{ warning }}
@@ -377,25 +395,46 @@ watch(
       </div>
 
       <div class="workbench-grid">
-        <SectionCard title="处方原图" subtitle="支持缩放、复核和逐项比对">
-          <div class="image-stage">
+        <SectionCard title="处方原图" subtitle="点击或拖拽图片到该区域，即可开始处方识别" inline-subtitle>
+          <input
+            ref="imageUploadInput"
+            class="upload-input"
+            type="file"
+            accept=".png,.jpg,.jpeg"
+            @change="handleImageInputChange"
+          />
+          <div
+            class="image-stage image-upload-stage"
+            :class="{ 'drag-active': dragActive, 'empty-stage': !previewImageUrl }"
+            @click="openImagePicker"
+            @dragover="handleDragOver"
+            @dragleave="handleDragLeave"
+            @drop="handleDrop"
+          >
+            <div v-if="submitting.upload" class="recognition-image-status active">
+              <span>正在上传图片并调用 AI 识别，请等待草稿生成</span>
+              <span class="status-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+            </div>
             <div v-if="previewImageUrl" class="image-preview-shell">
               <img :src="previewImageUrl" alt="处方原图" class="recognition-image" />
             </div>
             <div v-else class="image-paper">
-              <div class="paper-watermark">Original Prescription</div>
-              <div class="paper-lines">
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
+              <div class="image-upload-hint">
+                <strong>点击选择处方图片</strong>
+                <span>或将 JPG / PNG 图片拖拽到这里，系统会立即开始识别。</span>
               </div>
             </div>
           </div>
           <div v-if="data?.sourceImageUrl" class="image-meta">
             <span>图片地址</span>
             <strong class="mono">{{ data.sourceImageUrl }}</strong>
+          </div>
+          <div v-if="isMockFallback" class="recognition-fallback-note">
+            当前结果来自本地回退草稿，不是实时模型返回。
           </div>
           <div class="json-stream-panel">
             <div class="json-stream-head">
@@ -412,8 +451,18 @@ watch(
           </div>
         </SectionCard>
 
-        <SectionCard title="结构化结果" subtitle="低置信字段已高亮，保存前请逐项确认">
-          <div class="form-grid">
+        <SectionCard title="结构化结果" subtitle="低置信字段已高亮，保存前请逐项确认" inline-subtitle>
+          <div class="recognition-summary-bar" :class="{ expanded: detailPanelExpanded }">
+            <div class="recognition-summary-text">
+              <strong>校对摘要</strong>
+              <span>{{ formSummary }}</span>
+            </div>
+            <el-button text @click="detailPanelExpanded = !detailPanelExpanded">
+              {{ detailPanelExpanded ? "收起信息" : "展开信息" }}
+            </el-button>
+          </div>
+
+          <div v-show="detailPanelExpanded" class="form-grid">
             <div class="field-box" :class="{ 'low-confidence': lowConfidenceFields.has('patientName') }">
               <label>患者姓名</label>
               <span v-if="lowConfidenceFields.has('patientName')" class="field-alert">低置信</span>
@@ -466,7 +515,7 @@ watch(
             </div>
           </div>
 
-          <div class="patient-match-panel">
+          <div v-show="detailPanelExpanded" class="patient-match-panel">
             <div class="patient-match-head">
               <strong>患者确认</strong>
               <p>系统会先根据姓名、性别和年龄推荐近似患者，再由你确认是否复用已有患者档案。</p>

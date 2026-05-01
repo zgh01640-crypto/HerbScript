@@ -21,6 +21,6 @@ const handleChange = (event: Event) => {
       <strong>上传新处方图片</strong>
       <span class="upload-dropzone-action">点击选择图片</span>
     </div>
-    <span>支持 JPG / PNG，上传后会立即生成新的识别草稿并切换到当前工作台</span>
+    <span>支持 JPG / PNG，上传后立即生成新的识别草稿</span>
   </label>
 </template>
