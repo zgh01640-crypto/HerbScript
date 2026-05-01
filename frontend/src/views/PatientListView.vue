@@ -16,6 +16,13 @@ const loadPatients = async () => {
 };
 
 const rows = computed(() => data.value ?? []);
+const totalPatients = computed(() => rows.value.length);
+const totalPrescriptions = computed(() =>
+  rows.value.reduce((sum, row) => sum + row.prescriptionCount, 0)
+);
+const recentActivePatients = computed(() =>
+  rows.value.filter((row) => Boolean(row.lastPrescriptionDate)).length
+);
 
 onMounted(() => {
   void loadPatients();
@@ -25,6 +32,21 @@ onMounted(() => {
 <template>
   <AppShell>
     <SectionCard title="患者管理" subtitle="按患者主档查看累计处方与最近就诊记录">
+      <div class="patient-stats-strip">
+        <div class="patient-stat-card">
+          <span>患者主档</span>
+          <strong>{{ totalPatients }} 人</strong>
+        </div>
+        <div class="patient-stat-card">
+          <span>累计处方</span>
+          <strong>{{ totalPrescriptions }} 张</strong>
+        </div>
+        <div class="patient-stat-card">
+          <span>有就诊记录</span>
+          <strong>{{ recentActivePatients }} 人</strong>
+        </div>
+      </div>
+
       <div class="filter-grid patient-filter-grid">
         <el-input v-model="keyword" placeholder="患者编号 / 姓名 / 电话" @keyup.enter="loadPatients" />
         <div class="action-strip">

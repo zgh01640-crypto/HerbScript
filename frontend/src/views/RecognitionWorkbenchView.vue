@@ -5,6 +5,7 @@ import { ElMessage } from "element-plus";
 import AppShell from "../components/AppShell.vue";
 import ConfidenceBadge from "../components/ConfidenceBadge.vue";
 import SectionCard from "../components/SectionCard.vue";
+import { recognitionUploadController, recognitionUploadState } from "../composables/useRecognitionUploadState";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
 import type { PatientMatchCandidate, PrescriptionItemInput, PrescriptionRecord } from "../types/prescription";
@@ -27,7 +28,6 @@ const { data, loading, run } = useAsyncState<PrescriptionRecord | undefined>();
 const submitting = reactive({ confirm: false, upload: false });
 const errorMessage = reactive({ value: "" });
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
-const localPreviewUrl = ref("");
 const imageUploadInput = ref<HTMLInputElement | null>(null);
 const dragActive = ref(false);
 const matching = ref(false);
@@ -68,8 +68,8 @@ const matchLevelLabelMap: Record<PatientMatchCandidate["matchLevel"], string> = 
   low: "弱匹配"
 };
 const previewImageUrl = computed(() => {
-  if (localPreviewUrl.value) {
-    return localPreviewUrl.value;
+  if (recognitionUploadState.previewUrl) {
+    return recognitionUploadState.previewUrl;
   }
 
   const sourceImageUrl = data.value?.sourceImageUrl;
@@ -177,6 +177,25 @@ const resetWorkbench = () => {
   form.remark = "";
 };
 
+const syncFromRecognitionState = () => {
+  if (recognitionUploadState.record) {
+    data.value = recognitionUploadState.record;
+    hydrateDraft(recognitionUploadState.record);
+    return;
+  }
+
+  if (recognitionUploadState.status === "uploading") {
+    data.value = undefined;
+    resetPatientMatching();
+    editableItems.splice(0, editableItems.length);
+    return;
+  }
+
+  if (recognitionUploadState.status === "error") {
+    errorMessage.value = recognitionUploadState.errorMessage;
+  }
+};
+
 const addItem = () => {
   editableItems.push({
     sortNo: editableItems.length + 1,
@@ -268,6 +287,8 @@ const confirmDraft = async () => {
         sortNo: index + 1
       }))
     });
+    recognitionUploadController.clear();
+    resetWorkbench();
     await router.push(`/prescriptions/${result.id}`);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "确认入库失败";
@@ -279,23 +300,15 @@ const confirmDraft = async () => {
 const uploadImage = async (file: File) => {
   submitting.upload = true;
   errorMessage.value = "";
-  if (localPreviewUrl.value) {
-    URL.revokeObjectURL(localPreviewUrl.value);
-  }
-  localPreviewUrl.value = URL.createObjectURL(file);
 
   try {
-    const record = await prescriptionService.uploadRecognitionImage(file);
+    const record = await recognitionUploadController.upload(file);
     data.value = record;
     hydrateDraft(record);
     void runPatientMatch(true);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "上传识别失败";
   } finally {
-    if (!errorMessage.value && localPreviewUrl.value) {
-      URL.revokeObjectURL(localPreviewUrl.value);
-      localPreviewUrl.value = "";
-    }
     submitting.upload = false;
   }
 };
@@ -345,13 +358,13 @@ const copyRecognitionJson = async () => {
 };
 
 onMounted(() => {
-  resetWorkbench();
+  if (recognitionUploadState.status === "idle") {
+    resetWorkbench();
+  }
+  syncFromRecognitionState();
 });
 
 onBeforeUnmount(() => {
-  if (localPreviewUrl.value) {
-    URL.revokeObjectURL(localPreviewUrl.value);
-  }
   if (streamTimer !== null) {
     window.clearInterval(streamTimer);
   }
@@ -383,6 +396,26 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => recognitionUploadState.status,
+  () => {
+    submitting.upload = recognitionUploadState.status === "uploading";
+    syncFromRecognitionState();
+  },
+  { immediate: true }
+);
+
+watch(
+  () => recognitionUploadState.record,
+  (record) => {
+    if (record) {
+      data.value = record;
+      hydrateDraft(record);
+      void runPatientMatch(true);
+    }
+  }
+);
 </script>
 
 <template>
@@ -396,6 +429,9 @@ watch(
 
       <div class="workbench-grid">
         <SectionCard title="处方原图" subtitle="点击或拖拽图片到该区域，即可开始处方识别" inline-subtitle>
+          <template #extra>
+            <span class="recognition-card-badge">AI 识别入口</span>
+          </template>
           <input
             ref="imageUploadInput"
             class="upload-input"
@@ -452,6 +488,9 @@ watch(
         </SectionCard>
 
         <SectionCard title="结构化结果" subtitle="低置信字段已高亮，保存前请逐项确认" inline-subtitle>
+          <template #extra>
+            <span class="recognition-card-badge muted">人工校对面板</span>
+          </template>
           <div class="recognition-summary-bar" :class="{ expanded: detailPanelExpanded }">
             <div class="recognition-summary-text">
               <strong>校对摘要</strong>

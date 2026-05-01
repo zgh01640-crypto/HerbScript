@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter, useRoute } from "vue-router";
+import { recognitionUploadState } from "../composables/useRecognitionUploadState";
 import { authService } from "../services/authService";
 import { prescriptionService } from "../services/prescriptionService";
 
@@ -9,6 +10,7 @@ const route = useRoute();
 const currentUser = computed(() => authService.getStoredUser());
 const pendingReviewCount = ref<number>(0);
 const isRecognitionPage = computed(() => route.path === "/recognition");
+const isRecognitionUploading = computed(() => recognitionUploadState.status === "uploading");
 
 const menuItems = [
   { label: "概览", path: "/dashboard", badge: "概览" },
@@ -69,12 +71,15 @@ onMounted(async () => {
           <span>{{ item.label }}</span>
           <small>{{ item.badge }}</small>
         </RouterLink>
-      </nav>
 
-      <div class="sidebar-footnote">
-        <div>Vision Model</div>
-        <strong>doubao-seed-2-0-pro</strong>
-      </div>
+        <div class="sidebar-footnote compact online">
+          <span class="sidebar-online-dot" />
+          <div>
+            <div>Vision Model</div>
+            <strong>doubao-seed-2-0-pro</strong>
+          </div>
+        </div>
+      </nav>
     </aside>
 
     <div class="main-panel">
@@ -87,6 +92,16 @@ onMounted(async () => {
           <h1>{{ pageTitle }}</h1>
         </div>
         <div class="topbar-meta">
+          <button
+            v-if="isRecognitionUploading"
+            class="recognition-global-indicator"
+            type="button"
+            @click="router.push('/recognition')"
+          >
+            <span class="recognition-global-dot" />
+            <strong>识别进行中</strong>
+            <small>{{ recognitionUploadState.fileName || "处理中" }}</small>
+          </button>
           <div class="meta-card">
             <span>今日待校对</span>
             <strong>{{ pendingReviewCount }}</strong>

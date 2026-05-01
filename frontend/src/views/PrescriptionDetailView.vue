@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import AppShell from "../components/AppShell.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatusPill from "../components/StatusPill.vue";
+import { recognitionUploadController } from "../composables/useRecognitionUploadState";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
 import type { PrescriptionItemInput, PrescriptionRecord, PrescriptionSummary } from "../types/prescription";
@@ -83,6 +84,11 @@ const removePrescription = async () => {
   }
 };
 
+const goToRecognition = async () => {
+  recognitionUploadController.clear();
+  await router.push("/recognition");
+};
+
 const openImagePreview = () => {
   if (previewImageUrl.value) {
     syncPreviewItems();
@@ -148,6 +154,7 @@ const savePreviewItems = async () => {
           <strong>{{ data?.sourceModel ?? "人工录入" }}</strong>
         </div>
         <div class="action-strip">
+          <el-button @click="goToRecognition">处方识别</el-button>
           <el-button @click="router.push(`/prescriptions/${prescriptionId}/edit`)">编辑处方</el-button>
           <el-button type="danger" @click="removePrescription">删除处方</el-button>
         </div>
@@ -252,11 +259,17 @@ const savePreviewItems = async () => {
           </div>
           <div class="preview-compare-panel">
             <div class="preview-compare-head compact">
-              <div>
+              <div class="preview-compare-title">
+                <small>药味对照编辑</small>
                 <span>患者姓名</span>
                 <strong>{{ data?.patientName ?? "-" }}</strong>
               </div>
               <el-button type="primary" class="preview-save-button" :loading="previewSaving" @click="savePreviewItems">保存药味</el-button>
+            </div>
+
+            <div class="preview-compare-summary">
+              <span>共 {{ previewEditableItems.length }} 味药</span>
+              <span>左侧原图，右侧逐味校对</span>
             </div>
 
             <div class="preview-compare-list">
