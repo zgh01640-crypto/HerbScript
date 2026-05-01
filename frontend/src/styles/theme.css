@@ -1359,6 +1359,26 @@ a {
   white-space: nowrap;
 }
 
+.model-config-layout {
+  align-items: start;
+}
+
+.model-profile-card {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+}
+
+.model-profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--hs-text-soft);
+  font-size: 12px;
+}
+
 .patient-match-badge {
   display: inline-flex;
   align-items: center;

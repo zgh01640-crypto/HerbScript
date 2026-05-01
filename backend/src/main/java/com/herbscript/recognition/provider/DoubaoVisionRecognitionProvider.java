@@ -2,8 +2,9 @@ package com.herbscript.recognition.provider;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.herbscript.modelconfig.ModelConfigService;
+import com.herbscript.modelconfig.ModelRuntimeConfig;
 import com.herbscript.prescription.dto.PrescriptionItemSaveRequest;
-import com.herbscript.recognition.config.RecognitionProperties;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Files;
@@ -18,10 +19,10 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.stereotype.Component;
 
 @Component
 public class DoubaoVisionRecognitionProvider implements RecognitionProvider {
@@ -31,43 +32,43 @@ public class DoubaoVisionRecognitionProvider implements RecognitionProvider {
     private static final Pattern AGE_FROM_TEXT_PATTERN = Pattern.compile("(\\d{1,3})\\s*岁");
     private static final Pattern DOSE_FROM_TEXT_PATTERN = Pattern.compile("(\\d{1,2})\\s*(?:剂|付|帖)");
 
-    private final RecognitionProperties properties;
-    private final RestClient restClient;
+    private final ModelConfigService modelConfigService;
     private final ObjectMapper objectMapper;
 
-    public DoubaoVisionRecognitionProvider(RecognitionProperties properties, ObjectMapper objectMapper) {
-        this.properties = properties;
+    public DoubaoVisionRecognitionProvider(ModelConfigService modelConfigService, ObjectMapper objectMapper) {
+        this.modelConfigService = modelConfigService;
         this.objectMapper = objectMapper;
-        this.restClient = RestClient.builder()
-                .baseUrl(properties.getDoubaoBaseUrl())
-                .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
-                .build();
     }
 
     @Override
     public String providerName() {
-        return properties.getDoubaoModel();
+        return modelConfigService.getRuntimeConfig().doubaoModel();
     }
 
     @Override
     public RecognitionDraftData recognize(Path imagePath) {
+        ModelRuntimeConfig config = modelConfigService.getRuntimeConfig();
         String fileName = imagePath.getFileName().toString().toLowerCase();
 
-        if (properties.getDoubaoApiKey() == null || properties.getDoubaoApiKey().isBlank()) {
+        if (config.doubaoApiKey() == null || config.doubaoApiKey().isBlank()) {
             return mockDraft(fileName);
         }
 
         try {
             String imageDataUrl = toDataUrl(imagePath);
+            RestClient restClient = RestClient.builder()
+                    .baseUrl(config.doubaoBaseUrl())
+                    .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .build();
             String response = restClient.post()
-                    .uri(properties.getDoubaoChatPath())
-                    .header("Authorization", "Bearer " + properties.getDoubaoApiKey())
-                    .body(buildRequestBody(imageDataUrl))
+                    .uri(config.doubaoChatPath())
+                    .header("Authorization", "Bearer " + config.doubaoApiKey())
+                    .body(buildRequestBody(config, imageDataUrl))
                     .retrieve()
                     .body(String.class);
             return parseResponse(response);
         } catch (Exception ex) {
-            if (properties.isFallbackToMockOnError()) {
+            if (config.fallbackToMockOnError()) {
                 return mockDraft(fileName);
             }
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Doubao 识别调用失败");
@@ -83,9 +84,9 @@ public class DoubaoVisionRecognitionProvider implements RecognitionProvider {
         return "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(bytes);
     }
 
-    private Map<String, Object> buildRequestBody(String imageDataUrl) {
+    private Map<String, Object> buildRequestBody(ModelRuntimeConfig config, String imageDataUrl) {
         Map<String, Object> body = new HashMap<>();
-        body.put("model", properties.getDoubaoModel());
+        body.put("model", config.doubaoModel());
         body.put("temperature", 0.1);
         body.put("messages", List.of(
                 Map.of(

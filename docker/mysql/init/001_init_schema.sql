@@ -175,6 +175,35 @@ CREATE TABLE IF NOT EXISTS operation_log (
   KEY idx_created_at (created_at)
 );
 
+CREATE TABLE IF NOT EXISTS system_setting (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  setting_key VARCHAR(128) NOT NULL,
+  setting_value TEXT NULL,
+  setting_group VARCHAR(64) NOT NULL DEFAULT 'system',
+  remark VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uk_setting_key (setting_key),
+  KEY idx_setting_group (setting_group)
+);
+
+CREATE TABLE IF NOT EXISTS model_profile (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  profile_name VARCHAR(128) NOT NULL,
+  provider VARCHAR(64) NOT NULL,
+  doubao_base_url VARCHAR(255) NOT NULL,
+  doubao_model VARCHAR(128) NOT NULL,
+  doubao_chat_path VARCHAR(255) NOT NULL,
+  doubao_api_key VARCHAR(255) NULL,
+  fallback_to_mock_on_error TINYINT NOT NULL DEFAULT 1,
+  is_active TINYINT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY idx_model_profile_active (is_active)
+);
+
 INSERT IGNORE INTO sys_role (id, role_code, role_name, remark)
 VALUES
   (1, 'ADMIN', '管理员', '系统管理员'),

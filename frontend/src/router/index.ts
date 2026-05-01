@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import { authService } from "../services/authService";
 import DashboardView from "../views/DashboardView.vue";
 import LoginView from "../views/LoginView.vue";
+import ModelConfigView from "../views/ModelConfigView.vue";
 import PatientDetailView from "../views/PatientDetailView.vue";
 import PatientListView from "../views/PatientListView.vue";
 import PrescriptionDetailView from "../views/PrescriptionDetailView.vue";
@@ -39,6 +40,11 @@ const routes = [
     path: "/patients/:id",
     name: "patient-detail",
     component: PatientDetailView
+  },
+  {
+    path: "/model-config",
+    name: "model-config",
+    component: ModelConfigView
   },
   {
     path: "/prescriptions/new",

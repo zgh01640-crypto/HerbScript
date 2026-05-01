@@ -1,6 +1,7 @@
 package com.herbscript.config;
 
 import com.herbscript.patient.PatientService;
+import com.herbscript.recognition.config.RecognitionProperties;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -10,16 +11,21 @@ public class SampleDataInitializer implements CommandLineRunner {
 
     private final JdbcTemplate jdbcTemplate;
     private final PatientService patientService;
+    private final RecognitionProperties recognitionProperties;
 
-    public SampleDataInitializer(JdbcTemplate jdbcTemplate, PatientService patientService) {
+    public SampleDataInitializer(JdbcTemplate jdbcTemplate, PatientService patientService, RecognitionProperties recognitionProperties) {
         this.jdbcTemplate = jdbcTemplate;
         this.patientService = patientService;
+        this.recognitionProperties = recognitionProperties;
     }
 
     @Override
     public void run(String... args) {
         ensurePatientSchema();
+        ensureSystemSettingSchema();
+        ensureModelProfileSchema();
         jdbcTemplate.update("UPDATE sys_user SET real_name = ? WHERE id = 1", "系统管理员");
+        ensureDefaultModelProfile();
         patientService.ensurePatientBackfill();
 
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM prescription", Integer.class);
@@ -128,5 +134,72 @@ public class SampleDataInitializer implements CommandLineRunner {
         if (patientIdColumnCount == null || patientIdColumnCount == 0) {
             jdbcTemplate.execute("ALTER TABLE prescription ADD COLUMN patient_id BIGINT NULL AFTER prescription_type");
         }
+    }
+
+    private void ensureSystemSettingSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS system_setting (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  setting_key VARCHAR(128) NOT NULL,
+                  setting_value TEXT NULL,
+                  setting_group VARCHAR(64) NOT NULL DEFAULT 'system',
+                  remark VARCHAR(255) NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted TINYINT NOT NULL DEFAULT 0,
+                  UNIQUE KEY uk_setting_key (setting_key),
+                  KEY idx_setting_group (setting_group)
+                )
+                """);
+    }
+
+    private void ensureModelProfileSchema() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS model_profile (
+                  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                  profile_name VARCHAR(128) NOT NULL,
+                  provider VARCHAR(64) NOT NULL,
+                  doubao_base_url VARCHAR(255) NOT NULL,
+                  doubao_model VARCHAR(128) NOT NULL,
+                  doubao_chat_path VARCHAR(255) NOT NULL,
+                  doubao_api_key VARCHAR(255) NULL,
+                  fallback_to_mock_on_error TINYINT NOT NULL DEFAULT 1,
+                  is_active TINYINT NOT NULL DEFAULT 0,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  deleted TINYINT NOT NULL DEFAULT 0,
+                  KEY idx_model_profile_active (is_active)
+                )
+                """);
+    }
+
+    private void ensureDefaultModelProfile() {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM model_profile WHERE deleted = 0", Integer.class);
+        if (count != null && count > 0) {
+            return;
+        }
+
+        jdbcTemplate.update("""
+                INSERT INTO model_profile
+                (profile_name, provider, doubao_base_url, doubao_model, doubao_chat_path, doubao_api_key, fallback_to_mock_on_error, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """,
+                "默认 Doubao 配置",
+                recognitionProperties.getProvider(),
+                recognitionProperties.getDoubaoBaseUrl(),
+                recognitionProperties.getDoubaoModel(),
+                recognitionProperties.getDoubaoChatPath(),
+                recognitionProperties.getDoubaoApiKey(),
+                recognitionProperties.isFallbackToMockOnError()
+        );
+
+        Long profileId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO system_setting (setting_key, setting_value, setting_group, remark)
+                VALUES ('recognition.activeProfileId', ?, 'recognition', '当前生效模型档案')
+                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), deleted = 0, updated_at = CURRENT_TIMESTAMP
+                """,
+                String.valueOf(profileId)
+        );
     }
 }

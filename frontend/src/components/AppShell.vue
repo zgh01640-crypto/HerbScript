@@ -18,7 +18,8 @@ const menuItems = [
   { label: "处方识别", path: "/recognition", badge: "AI" },
   { label: "处方列表", path: "/prescriptions", badge: "核心" },
   { label: "药材字典", path: "/herbs", badge: "标准" },
-  { label: "用户管理", path: "/users", badge: "权限" }
+  { label: "用户管理", path: "/users", badge: "权限" },
+  { label: "模型配置", path: "/model-config", badge: "设置" }
 ];
 
 const pageTitle = computed(() => {

@@ -1,9 +1,10 @@
 package com.herbscript.recognition;
 
+import com.herbscript.modelconfig.ModelConfigService;
+import com.herbscript.modelconfig.ModelRuntimeConfig;
 import com.herbscript.prescription.PrescriptionQueryService;
 import com.herbscript.prescription.dto.PrescriptionDetailResponse;
 import com.herbscript.prescription.dto.PrescriptionItemSaveRequest;
-import com.herbscript.recognition.config.RecognitionProperties;
 import com.herbscript.recognition.provider.RecognitionDraftData;
 import com.herbscript.recognition.provider.RecognitionProvider;
 import java.io.IOException;
@@ -25,18 +26,18 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class RecognitionUploadService {
 
-    private final RecognitionProperties properties;
+    private final ModelConfigService modelConfigService;
     private final RecognitionProvider recognitionProvider;
     private final JdbcTemplate jdbcTemplate;
     private final PrescriptionQueryService prescriptionQueryService;
 
     public RecognitionUploadService(
-            RecognitionProperties properties,
+            ModelConfigService modelConfigService,
             RecognitionProvider recognitionProvider,
             JdbcTemplate jdbcTemplate,
             PrescriptionQueryService prescriptionQueryService
     ) {
-        this.properties = properties;
+        this.modelConfigService = modelConfigService;
         this.recognitionProvider = recognitionProvider;
         this.jdbcTemplate = jdbcTemplate;
         this.prescriptionQueryService = prescriptionQueryService;
@@ -78,7 +79,8 @@ public class RecognitionUploadService {
 
     private Path storeFile(MultipartFile file) {
         try {
-            Path baseDir = Path.of(properties.getUploadDir(), LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE));
+            ModelRuntimeConfig runtimeConfig = modelConfigService.getRuntimeConfig();
+            Path baseDir = Path.of(runtimeConfig.uploadDir(), LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE));
             Files.createDirectories(baseDir);
 
             String originalName = file.getOriginalFilename() == null ? "prescription.png" : file.getOriginalFilename();
