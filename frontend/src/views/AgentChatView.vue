@@ -732,6 +732,31 @@ const saveDraftNote = async () => {
   ElMessage.success("草稿已保存进系统");
 };
 
+const removeSavedNote = async (note: AgentNote) => {
+  try {
+    await ElMessageBox.confirm(`确认删除记录「${note.title}」吗？`, "删除智能体记录", { type: "warning" });
+    await agentService.deleteNote(note.id);
+    notes.value = notes.value.filter((item) => item.id !== note.id);
+    ElMessage.success("记录已删除");
+  } catch {
+    // noop
+  }
+};
+
+const renameSavedNote = async (note: AgentNote) => {
+  try {
+    const { value } = await ElMessageBox.prompt("请输入新的记录标题", "重命名智能体记录", {
+      inputValue: note.title,
+      inputPlaceholder: "请输入标题"
+    });
+    const updated = await agentService.updateNoteTitle(note.id, value);
+    notes.value = notes.value.map((item) => (item.id === note.id ? updated : item));
+    ElMessage.success("标题已更新");
+  } catch {
+    // noop
+  }
+};
+
 const deleteSession = async (session: AgentSessionSummary) => {
   try {
     await ElMessageBox.confirm(`确认删除会话「${session.title}」吗？`, "删除会话", { type: "warning" });
@@ -946,8 +971,14 @@ onUnmounted(() => {
                   class="agent-note-item"
                 >
                   <div class="agent-note-meta">
-                    <strong>{{ note.title }}</strong>
-                    <span>{{ note.createdAt }}</span>
+                    <div class="agent-note-meta-main">
+                      <strong>{{ note.title }}</strong>
+                      <span>{{ note.createdAt }}</span>
+                    </div>
+                    <div class="agent-note-actions">
+                      <el-button link @click="renameSavedNote(note)">重命名</el-button>
+                      <el-button link type="danger" @click="removeSavedNote(note)">删除</el-button>
+                    </div>
                   </div>
                   <p>{{ note.content }}</p>
                 </div>

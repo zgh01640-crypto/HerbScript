@@ -4,6 +4,7 @@ import com.herbscript.agent.dto.AgentChatRequest;
 import com.herbscript.agent.dto.AgentChatResponse;
 import com.herbscript.agent.dto.AgentNoteResponse;
 import com.herbscript.agent.dto.AgentNoteSaveRequest;
+import com.herbscript.agent.dto.AgentNoteUpdateRequest;
 import com.herbscript.agent.dto.AgentSessionCreateRequest;
 import com.herbscript.agent.dto.AgentSessionDetailResponse;
 import com.herbscript.agent.dto.AgentSessionResponse;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -125,6 +127,20 @@ public class AgentController {
     @PostMapping("/notes")
     public ApiResponse<AgentNoteResponse> saveNote(@Valid @RequestBody AgentNoteSaveRequest request) {
         return ApiResponse.success(noteService.save(1L, request));
+    }
+
+    @PutMapping("/notes/{noteId}")
+    public ApiResponse<AgentNoteResponse> updateNoteTitle(
+            @PathVariable Long noteId,
+            @Valid @RequestBody AgentNoteUpdateRequest request
+    ) {
+        return ApiResponse.success(noteService.updateTitle(noteId, request));
+    }
+
+    @DeleteMapping("/notes/{noteId}")
+    public ApiResponse<Void> deleteNote(@PathVariable Long noteId) {
+        noteService.delete(noteId);
+        return ApiResponse.success(null);
     }
 
     @DeleteMapping("/sessions/{sessionId}")

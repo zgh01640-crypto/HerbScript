@@ -154,6 +154,17 @@ export const agentService = {
     return response.data;
   },
 
+  async updateNoteTitle(noteId: number, title: string): Promise<AgentNote> {
+    const response = await http.put<ApiResponse<AgentNote>>(`/api/agent/notes/${noteId}`, {
+      title
+    });
+    return response.data;
+  },
+
+  async deleteNote(noteId: number): Promise<void> {
+    await http.delete<ApiResponse<null>>(`/api/agent/notes/${noteId}`);
+  },
+
   async deleteSession(sessionId: number): Promise<void> {
     await http.delete<ApiResponse<null>>(`/api/agent/sessions/${sessionId}`);
   }

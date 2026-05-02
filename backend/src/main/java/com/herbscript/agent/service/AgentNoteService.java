@@ -2,10 +2,13 @@ package com.herbscript.agent.service;
 
 import com.herbscript.agent.dto.AgentNoteResponse;
 import com.herbscript.agent.dto.AgentNoteSaveRequest;
+import com.herbscript.agent.dto.AgentNoteUpdateRequest;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AgentNoteService {
@@ -59,6 +62,30 @@ public class AgentNoteService {
                 anchorType,
                 anchorId
         );
+    }
+
+    @Transactional
+    public void delete(Long noteId) {
+        int updated = jdbcTemplate.update(
+                "UPDATE agent_note SET deleted = 1 WHERE id = ? AND deleted = 0",
+                noteId
+        );
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "智能体记录不存在");
+        }
+    }
+
+    @Transactional
+    public AgentNoteResponse updateTitle(Long noteId, AgentNoteUpdateRequest request) {
+        int updated = jdbcTemplate.update(
+                "UPDATE agent_note SET title = ? WHERE id = ? AND deleted = 0",
+                request.title().trim(),
+                noteId
+        );
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "智能体记录不存在");
+        }
+        return getById(noteId);
     }
 
     private AgentNoteResponse getById(Long id) {

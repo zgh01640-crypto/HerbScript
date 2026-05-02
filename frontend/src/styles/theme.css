@@ -881,6 +881,19 @@ a {
   gap: 12px;
 }
 
+.agent-note-meta-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-note-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .agent-note-meta strong {
   font-size: 13px;
   color: var(--hs-primary-dark);

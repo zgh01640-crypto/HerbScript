@@ -22,6 +22,7 @@ const imagePreviewVisible = ref(false);
 const previewSaving = ref(false);
 const previewEditableItems = ref<PrescriptionItemInput[]>([]);
 const summaryNotes = ref<AgentNote[]>([]);
+const summaryGenerating = ref(false);
 const patientHistoryCount = computed(() => patientHistory.value.length + (data.value?.patientId ? 1 : 0));
 const latestPrescriptionDate = computed(() => {
   const dates = [
@@ -136,6 +137,87 @@ const savePreviewItems = async () => {
     previewSaving.value = false;
   }
 };
+
+const buildAgentDraft = (summary: string, observations: string[], risks: string[], suggestions: string[]) => {
+  return [
+    `摘要：${summary}`,
+    observations.length ? `观察：\n- ${observations.join("\n- ")}` : "",
+    risks.length ? `风险提醒：\n- ${risks.join("\n- ")}` : "",
+    suggestions.length ? `建议：\n- ${suggestions.join("\n- ")}` : ""
+  ].filter(Boolean).join("\n\n");
+};
+
+const generatePrescriptionSummary = async () => {
+  if (!data.value) {
+    return;
+  }
+
+  summaryGenerating.value = true;
+  try {
+    const sessions = await agentService.listSessions("prescription", prescriptionId.value);
+    const session = sessions[0] ?? await agentService.createSession("prescription", prescriptionId.value, `${data.value.prescriptionNo}分析`);
+    const response = await agentService.chat(
+      session.id,
+      "prescription",
+      prescriptionId.value,
+      "请生成适合归档的结构化处方总结"
+    );
+    const content = response.structured
+      ? buildAgentDraft(
+          response.structured.summary,
+          response.structured.observations,
+          response.structured.risks,
+          response.structured.suggestions
+        )
+      : response.message.content;
+    const title = `智能体处方摘要 ${new Date().toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).replace(/\//g, "-")}`;
+    const note = await agentService.saveNote(
+      session.id,
+      "prescription",
+      prescriptionId.value,
+      "prescription_summary",
+      title,
+      content
+    );
+    summaryNotes.value = [note, ...summaryNotes.value];
+    ElMessage.success("智能体处方摘要已生成并保存");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "生成处方摘要失败");
+  } finally {
+    summaryGenerating.value = false;
+  }
+};
+
+const removeSummaryNote = async (note: AgentNote) => {
+  try {
+    await ElMessageBox.confirm(`确认删除记录「${note.title}」吗？`, "删除智能体记录", { type: "warning" });
+    await agentService.deleteNote(note.id);
+    summaryNotes.value = summaryNotes.value.filter((item) => item.id !== note.id);
+    ElMessage.success("记录已删除");
+  } catch {
+    // noop
+  }
+};
+
+const renameSummaryNote = async (note: AgentNote) => {
+  try {
+    const { value } = await ElMessageBox.prompt("请输入新的记录标题", "重命名智能体记录", {
+      inputValue: note.title,
+      inputPlaceholder: "请输入标题"
+    });
+    const updated = await agentService.updateNoteTitle(note.id, value);
+    summaryNotes.value = summaryNotes.value.map((item) => (item.id === note.id ? updated : item));
+    ElMessage.success("标题已更新");
+  } catch {
+    // noop
+  }
+};
 </script>
 
 <template>
@@ -226,6 +308,9 @@ const savePreviewItems = async () => {
       </SectionCard>
 
       <SectionCard title="智能体处方摘要" subtitle="沉淀智能体生成的处方分析与归档草稿">
+        <template #extra>
+          <el-button type="primary" plain :loading="summaryGenerating" @click="generatePrescriptionSummary">一键生成处方摘要</el-button>
+        </template>
         <div v-if="summaryNotes.length" class="agent-note-list">
           <div
             v-for="note in summaryNotes"
@@ -233,8 +318,14 @@ const savePreviewItems = async () => {
             class="agent-note-item"
           >
             <div class="agent-note-meta">
-              <strong>{{ note.title }}</strong>
-              <span>{{ note.createdAt }}</span>
+              <div class="agent-note-meta-main">
+                <strong>{{ note.title }}</strong>
+                <span>{{ note.createdAt }}</span>
+              </div>
+              <div class="agent-note-actions">
+                <el-button link @click="renameSummaryNote(note)">重命名</el-button>
+                <el-button link type="danger" @click="removeSummaryNote(note)">删除</el-button>
+              </div>
             </div>
             <p>{{ note.content }}</p>
           </div>
