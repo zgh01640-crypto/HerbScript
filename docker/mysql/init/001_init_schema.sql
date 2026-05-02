@@ -204,6 +204,114 @@ CREATE TABLE IF NOT EXISTS model_profile (
   KEY idx_model_profile_active (is_active)
 );
 
+CREATE TABLE IF NOT EXISTS agent_session (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  anchor_type VARCHAR(32) NOT NULL,
+  anchor_id BIGINT NULL,
+  title VARCHAR(255) NOT NULL,
+  session_status VARCHAR(32) NOT NULL DEFAULT 'active',
+  last_message_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY idx_agent_session_anchor (anchor_type, anchor_id),
+  KEY idx_agent_session_user (user_id),
+  KEY idx_agent_session_last_message (last_message_at)
+);
+
+CREATE TABLE IF NOT EXISTS agent_message (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  role VARCHAR(32) NOT NULL,
+  content LONGTEXT NOT NULL,
+  structured_payload LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_agent_message_session (session_id),
+  KEY idx_agent_message_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS agent_tool_call (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  message_id BIGINT NULL,
+  tool_name VARCHAR(128) NOT NULL,
+  tool_label VARCHAR(255) NULL,
+  input_json LONGTEXT NULL,
+  output_json LONGTEXT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'success',
+  error_message VARCHAR(500) NULL,
+  latency_ms INT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_agent_tool_call_session (session_id),
+  KEY idx_agent_tool_call_message (message_id),
+  KEY idx_agent_tool_call_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS agent_trace (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  message_id BIGINT NULL,
+  model_name VARCHAR(128) NULL,
+  prompt_tokens INT NULL,
+  completion_tokens INT NULL,
+  total_tokens INT NULL,
+  latency_ms INT NULL,
+  trace_payload LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_agent_trace_session (session_id),
+  KEY idx_agent_trace_message (message_id),
+  KEY idx_agent_trace_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS agent_memory (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NULL,
+  anchor_type VARCHAR(32) NULL,
+  anchor_id BIGINT NULL,
+  memory_scope VARCHAR(32) NOT NULL DEFAULT 'session',
+  memory_key VARCHAR(128) NOT NULL,
+  memory_value LONGTEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY idx_agent_memory_session (session_id),
+  KEY idx_agent_memory_anchor (anchor_type, anchor_id),
+  KEY idx_agent_memory_scope (memory_scope, memory_key)
+);
+
+CREATE TABLE IF NOT EXISTS agent_skill_run (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NOT NULL,
+  message_id BIGINT NULL,
+  skill_name VARCHAR(128) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'success',
+  output_json LONGTEXT NULL,
+  latency_ms INT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_agent_skill_run_session (session_id),
+  KEY idx_agent_skill_run_message (message_id),
+  KEY idx_agent_skill_run_created_at (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS agent_note (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id BIGINT NULL,
+  anchor_type VARCHAR(32) NOT NULL,
+  anchor_id BIGINT NOT NULL,
+  note_type VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content LONGTEXT NOT NULL,
+  created_by BIGINT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY idx_agent_note_anchor (anchor_type, anchor_id),
+  KEY idx_agent_note_session (session_id),
+  KEY idx_agent_note_note_type (note_type),
+  KEY idx_agent_note_created_at (created_at)
+);
+
 INSERT IGNORE INTO sys_role (id, role_code, role_name, remark)
 VALUES
   (1, 'ADMIN', '管理员', '系统管理员'),

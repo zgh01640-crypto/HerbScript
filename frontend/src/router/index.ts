@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { authService } from "../services/authService";
+import AgentChatView from "../views/AgentChatView.vue";
 import DashboardView from "../views/DashboardView.vue";
 import LoginView from "../views/LoginView.vue";
 import ModelConfigView from "../views/ModelConfigView.vue";
@@ -25,6 +26,11 @@ const routes = [
     path: "/dashboard",
     name: "dashboard",
     component: DashboardView
+  },
+  {
+    path: "/agent",
+    name: "agent",
+    component: AgentChatView
   },
   {
     path: "/prescriptions",

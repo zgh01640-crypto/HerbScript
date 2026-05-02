@@ -6,7 +6,9 @@ import AppShell from "../components/AppShell.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import { useAsyncState } from "../composables/useAsyncState";
+import { agentService } from "../services/agentService";
 import { prescriptionService } from "../services/prescriptionService";
+import type { AgentNote } from "../types/agent";
 import type { PatientDetail, PatientSummary, PrescriptionRecord } from "../types/prescription";
 
 const route = useRoute();
@@ -24,6 +26,7 @@ const mergeKeyword = ref("");
 const mergeCandidates = ref<PatientSummary[]>([]);
 const mergeLoading = ref(false);
 const merging = ref(false);
+const followupNotes = ref<AgentNote[]>([]);
 
 onMounted(() => {
   void run(async () => {
@@ -41,6 +44,8 @@ const loadDetail = async () => {
     compareRightId.value = detail.prescriptions[1]?.id ?? detail.prescriptions[0]?.id ?? null;
     return detail;
   });
+  followupNotes.value = (await agentService.listNotes("patient", patientId.value))
+    .filter((item) => item.noteType === "followup_note");
 };
 
 const compareOptions = computed(() => data.value?.prescriptions ?? []);
@@ -279,20 +284,47 @@ const mergePatient = async (sourcePatient: PatientSummary) => {
           <span>最近处方</span>
           <strong>{{ data?.lastPrescriptionDate ?? "-" }}</strong>
         </div>
+        <div class="action-strip">
+          <el-button
+            type="primary"
+            @click="router.push(`/agent?anchorType=patient&anchorId=${patientId}&title=${encodeURIComponent((data?.name ?? '患者') + '病例分析')}`)"
+          >
+            问智能体
+          </el-button>
+        </div>
       </div>
 
       <div class="workbench-grid">
-        <SectionCard title="患者主档" subtitle="保存患者基础信息与近似匹配主档">
-          <div class="info-grid">
-            <div><span>患者姓名</span><strong>{{ data?.name ?? "-" }}</strong></div>
+      <SectionCard title="患者主档" subtitle="保存患者基础信息与近似匹配主档">
+        <div class="info-grid">
+          <div><span>患者姓名</span><strong>{{ data?.name ?? "-" }}</strong></div>
             <div><span>性别</span><strong>{{ data?.gender ?? "-" }}</strong></div>
             <div><span>年龄</span><strong>{{ data?.age ?? "-" }}</strong></div>
             <div><span>联系电话</span><strong>{{ data?.phone || "-" }}</strong></div>
             <div class="patient-remark-box"><span>备注</span><strong>{{ data?.remark || "当前暂无补充备注" }}</strong></div>
-          </div>
-        </SectionCard>
+        </div>
+      </SectionCard>
 
-        <SectionCard title="历史处方时间线" subtitle="点击处方可进入详情继续对比原图与结构化结果">
+      <SectionCard title="智能体随访记录" subtitle="沉淀智能体生成的随访总结与沟通草稿">
+        <div v-if="followupNotes.length" class="agent-note-list">
+          <div
+            v-for="note in followupNotes"
+            :key="note.id"
+            class="agent-note-item"
+          >
+            <div class="agent-note-meta">
+              <strong>{{ note.title }}</strong>
+              <span>{{ note.createdAt }}</span>
+            </div>
+            <p>{{ note.content }}</p>
+          </div>
+        </div>
+        <div v-else class="detail-image-empty">
+          当前患者暂无智能体随访记录
+        </div>
+      </SectionCard>
+
+      <SectionCard title="历史处方时间线" subtitle="点击处方可进入详情继续对比原图与结构化结果">
           <div v-if="(data?.prescriptions.length ?? 0) > 0" class="record-list">
             <button
               v-for="item in data?.prescriptions ?? []"

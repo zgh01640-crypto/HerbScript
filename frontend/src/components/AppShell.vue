@@ -15,6 +15,7 @@ const isRecognitionUploading = computed(() => recognitionUploadState.status === 
 const menuItems = [
   { label: "概览", path: "/dashboard", badge: "概览" },
   { label: "患者管理", path: "/patients", badge: "档案" },
+  { label: "智能体", path: "/agent", badge: "Chat" },
   { label: "处方识别", path: "/recognition", badge: "AI" },
   { label: "处方列表", path: "/prescriptions", badge: "核心" },
   { label: "药材字典", path: "/herbs", badge: "标准" },
@@ -29,6 +30,10 @@ const pageTitle = computed(() => {
 
   if (route.path.startsWith("/patients/")) {
     return "患者详情";
+  }
+
+  if (route.path.startsWith("/agent")) {
+    return "智能体对话";
   }
 
   const current = menuItems.find((item) => item.path === route.path);

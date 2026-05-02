@@ -7,7 +7,9 @@ import SectionCard from "../components/SectionCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import { recognitionUploadController } from "../composables/useRecognitionUploadState";
 import { useAsyncState } from "../composables/useAsyncState";
+import { agentService } from "../services/agentService";
 import { prescriptionService } from "../services/prescriptionService";
+import type { AgentNote } from "../types/agent";
 import type { PrescriptionItemInput, PrescriptionRecord, PrescriptionSummary } from "../types/prescription";
 
 const route = useRoute();
@@ -19,6 +21,7 @@ const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 
 const imagePreviewVisible = ref(false);
 const previewSaving = ref(false);
 const previewEditableItems = ref<PrescriptionItemInput[]>([]);
+const summaryNotes = ref<AgentNote[]>([]);
 const patientHistoryCount = computed(() => patientHistory.value.length + (data.value?.patientId ? 1 : 0));
 const latestPrescriptionDate = computed(() => {
   const dates = [
@@ -65,6 +68,8 @@ const loadDetail = async () => {
     return detail;
   });
   syncPreviewItems();
+  summaryNotes.value = (await agentService.listNotes("prescription", prescriptionId.value))
+    .filter((item) => item.noteType === "prescription_summary");
 };
 
 onMounted(() => {
@@ -154,6 +159,12 @@ const savePreviewItems = async () => {
           <strong>{{ data?.sourceModel ?? "人工录入" }}</strong>
         </div>
         <div class="action-strip">
+          <el-button
+            type="primary"
+            @click="router.push(`/agent?anchorType=prescription&anchorId=${prescriptionId}&title=${encodeURIComponent((data?.prescriptionNo ?? '处方') + '分析')}`)"
+          >
+            分析处方
+          </el-button>
           <el-button @click="goToRecognition">处方识别</el-button>
           <el-button @click="router.push(`/prescriptions/${prescriptionId}/edit`)">编辑处方</el-button>
           <el-button type="danger" @click="removePrescription">删除处方</el-button>
@@ -211,6 +222,25 @@ const savePreviewItems = async () => {
             <strong>{{ log.time }}</strong>
             <span>{{ log.content }}</span>
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="智能体处方摘要" subtitle="沉淀智能体生成的处方分析与归档草稿">
+        <div v-if="summaryNotes.length" class="agent-note-list">
+          <div
+            v-for="note in summaryNotes"
+            :key="note.id"
+            class="agent-note-item"
+          >
+            <div class="agent-note-meta">
+              <strong>{{ note.title }}</strong>
+              <span>{{ note.createdAt }}</span>
+            </div>
+            <p>{{ note.content }}</p>
+          </div>
+        </div>
+        <div v-else class="detail-image-empty">
+          当前处方暂无智能体处方摘要
         </div>
       </SectionCard>
 
