@@ -8,6 +8,7 @@ import SectionCard from "../components/SectionCard.vue";
 import { recognitionUploadController, recognitionUploadState } from "../composables/useRecognitionUploadState";
 import { useAsyncState } from "../composables/useAsyncState";
 import { prescriptionService } from "../services/prescriptionService";
+import { resolveApiBaseUrl } from "../utils/runtime";
 import type { PatientMatchCandidate, PrescriptionItemInput, PrescriptionRecord } from "../types/prescription";
 
 type WorkbenchForm = {
@@ -27,7 +28,7 @@ const router = useRouter();
 const { data, loading, run } = useAsyncState<PrescriptionRecord | undefined>();
 const submitting = reactive({ confirm: false, upload: false });
 const errorMessage = reactive({ value: "" });
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
+const apiBaseUrl = resolveApiBaseUrl();
 const imageUploadInput = ref<HTMLInputElement | null>(null);
 const dragActive = ref(false);
 const matching = ref(false);

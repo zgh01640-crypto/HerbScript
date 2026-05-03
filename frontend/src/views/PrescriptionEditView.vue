@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import AppShell from "../components/AppShell.vue";
 import SectionCard from "../components/SectionCard.vue";
 import { prescriptionService } from "../services/prescriptionService";
+import { resolveApiBaseUrl } from "../utils/runtime";
 import type { PrescriptionItemInput, PrescriptionRecord, PrescriptionSavePayload } from "../types/prescription";
 
 const route = useRoute();
@@ -14,7 +15,7 @@ const saving = ref(false);
 const errorMessage = ref("");
 const record = ref<PrescriptionRecord | undefined>();
 const imagePreviewVisible = ref(false);
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
+const apiBaseUrl = resolveApiBaseUrl();
 
 const form = reactive<PrescriptionSavePayload>({
   hospitalName: "",

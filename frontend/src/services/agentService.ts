@@ -1,4 +1,5 @@
 import { http } from "./http";
+import { resolveApiBaseUrl } from "../utils/runtime";
 import type {
   AgentAnchorType,
   AgentChatResponse,
@@ -55,7 +56,7 @@ export const agentService = {
     message: string,
     onEvent: (eventName: string, payload: unknown) => void
   ): Promise<void> {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
+    const API_BASE_URL = resolveApiBaseUrl();
     const response = await fetch(new URL("/api/agent/chat/stream", API_BASE_URL).toString(), {
       method: "POST",
       headers: {

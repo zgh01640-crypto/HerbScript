@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8081";
+import { resolveApiBaseUrl } from "../utils/runtime";
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 export const http = {
   async get<T>(path: string, params?: Record<string, string>) {

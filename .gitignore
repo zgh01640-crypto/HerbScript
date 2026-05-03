@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 .idea/
 .vscode/
@@ -14,4 +15,3 @@ backend/target/
 storage/uploads/
 
 *.log
-

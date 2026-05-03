@@ -9,6 +9,7 @@ import { recognitionUploadController } from "../composables/useRecognitionUpload
 import { useAsyncState } from "../composables/useAsyncState";
 import { agentService } from "../services/agentService";
 import { prescriptionService } from "../services/prescriptionService";
+import { resolveApiBaseUrl } from "../utils/runtime";
 import type { AgentNote } from "../types/agent";
 import type { PrescriptionItemInput, PrescriptionRecord, PrescriptionSummary } from "../types/prescription";
 
@@ -17,7 +18,7 @@ const router = useRouter();
 const prescriptionId = computed(() => Number(route.params.id));
 const { data, loading, run } = useAsyncState<PrescriptionRecord | undefined>();
 const patientHistory = ref<PrescriptionSummary[]>([]);
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8081";
+const apiBaseUrl = resolveApiBaseUrl();
 const imagePreviewVisible = ref(false);
 const previewSaving = ref(false);
 const previewEditableItems = ref<PrescriptionItemInput[]>([]);
