@@ -24,4 +24,8 @@ public class ToolRegistry {
         }
         return tool;
     }
+
+    public List<AgentTool> listByNames(List<String> names) {
+        return names.stream().map(this::get).toList();
+    }
 }

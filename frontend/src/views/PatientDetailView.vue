@@ -27,7 +27,47 @@ const mergeCandidates = ref<PatientSummary[]>([]);
 const mergeLoading = ref(false);
 const merging = ref(false);
 const followupNotes = ref<AgentNote[]>([]);
+const expandedFollowupNoteIds = ref<number[]>([]);
+const followupNoteFilter = ref<"all" | "pinned">("all");
 const followupGenerating = ref(false);
+
+const normalizeConfidence = (value?: string | null) => {
+  const normalized = (value || "").toLowerCase();
+  return normalized === "high" || normalized === "medium" || normalized === "low" ? normalized : "";
+};
+
+const confidenceLabel = (value?: string | null) => {
+  const normalized = normalizeConfidence(value);
+  if (normalized === "high") return "高";
+  if (normalized === "low") return "低";
+  if (normalized === "medium") return "中";
+  return "";
+};
+
+const parseRemainingUncertainties = (value?: string | null) => {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
+const sortAgentNotes = (items: AgentNote[]) =>
+  [...items].sort((left, right) => {
+    if (left.pinned !== right.pinned) {
+      return left.pinned ? -1 : 1;
+    }
+    return right.createdAt.localeCompare(left.createdAt);
+  });
+const visibleFollowupNotes = computed(() =>
+  followupNoteFilter.value === "pinned"
+    ? followupNotes.value.filter((item) => item.pinned)
+    : followupNotes.value
+);
 
 onMounted(() => {
   void loadDetail();
@@ -40,8 +80,11 @@ const loadDetail = async () => {
     compareRightId.value = detail.prescriptions[1]?.id ?? detail.prescriptions[0]?.id ?? null;
     return detail;
   });
-  followupNotes.value = (await agentService.listNotes("patient", patientId.value))
-    .filter((item) => item.noteType === "followup_note");
+  followupNotes.value = sortAgentNotes(
+    (await agentService.listNotes("patient", patientId.value))
+      .filter((item) => item.noteType === "followup_note")
+  );
+  expandedFollowupNoteIds.value = [];
 };
 
 const compareOptions = computed(() => data.value?.prescriptions ?? []);
@@ -304,9 +347,14 @@ const generateFollowupNote = async () => {
       patientId.value,
       "followup_note",
       title,
-      content
+      content,
+      {
+        answerConfidence: response.structured?.answerConfidence ?? null,
+        remainingUncertainties: response.structured?.remainingUncertainties ?? []
+      }
     );
-    followupNotes.value = [note, ...followupNotes.value];
+    followupNotes.value = sortAgentNotes([note, ...followupNotes.value]);
+    expandedFollowupNoteIds.value = [note.id, ...expandedFollowupNoteIds.value];
     ElMessage.success("智能体随访记录已生成并保存");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "生成随访记录失败");
@@ -320,10 +368,17 @@ const removeFollowupNote = async (note: AgentNote) => {
     await ElMessageBox.confirm(`确认删除记录「${note.title}」吗？`, "删除智能体记录", { type: "warning" });
     await agentService.deleteNote(note.id);
     followupNotes.value = followupNotes.value.filter((item) => item.id !== note.id);
+    expandedFollowupNoteIds.value = expandedFollowupNoteIds.value.filter((id) => id !== note.id);
     ElMessage.success("记录已删除");
   } catch {
     // noop
   }
+};
+
+const toggleFollowupNote = (noteId: number) => {
+  expandedFollowupNoteIds.value = expandedFollowupNoteIds.value.includes(noteId)
+    ? expandedFollowupNoteIds.value.filter((id) => id !== noteId)
+    : [...expandedFollowupNoteIds.value, noteId];
 };
 
 const renameFollowupNote = async (note: AgentNote) => {
@@ -333,10 +388,45 @@ const renameFollowupNote = async (note: AgentNote) => {
       inputPlaceholder: "请输入标题"
     });
     const updated = await agentService.updateNoteTitle(note.id, value);
-    followupNotes.value = followupNotes.value.map((item) => (item.id === note.id ? updated : item));
+    followupNotes.value = sortAgentNotes(followupNotes.value.map((item) => (item.id === note.id ? updated : item)));
     ElMessage.success("标题已更新");
   } catch {
     // noop
+  }
+};
+
+const editFollowupNoteContent = async (note: AgentNote) => {
+  try {
+    const { value } = await ElMessageBox.prompt("请编辑随访记录正文", "编辑智能体记录", {
+      inputValue: note.content,
+      inputType: "textarea",
+      inputPlaceholder: "请输入随访记录正文"
+    });
+    const updated = await agentService.updateNoteContent(note.id, value);
+    followupNotes.value = sortAgentNotes(followupNotes.value.map((item) => (item.id === note.id ? updated : item)));
+    expandedFollowupNoteIds.value = expandedFollowupNoteIds.value.includes(note.id) ? expandedFollowupNoteIds.value : [note.id, ...expandedFollowupNoteIds.value];
+    ElMessage.success("正文已更新");
+  } catch {
+    // noop
+  }
+};
+
+const toggleFollowupNotePinned = async (note: AgentNote) => {
+  try {
+    const updated = await agentService.updateNotePinned(note.id, !note.pinned);
+    followupNotes.value = sortAgentNotes(followupNotes.value.map((item) => (item.id === note.id ? updated : item)));
+    ElMessage.success(updated.pinned ? "记录已置顶" : "已取消置顶");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "更新置顶状态失败");
+  }
+};
+
+const copyFollowupNoteContent = async (note: AgentNote) => {
+  try {
+    await navigator.clipboard.writeText(note.content);
+    ElMessage.success("正文已复制");
+  } catch {
+    ElMessage.error("复制失败，请手动复制");
   }
 };
 </script>
@@ -387,22 +477,57 @@ const renameFollowupNote = async (note: AgentNote) => {
           <el-button type="primary" plain :loading="followupGenerating" @click="generateFollowupNote">一键生成随访记录</el-button>
         </template>
         <div v-if="followupNotes.length" class="agent-note-list">
+          <div class="agent-note-list-head">
+            <div class="agent-note-list-summary">
+              <strong>记录列表</strong>
+              <span>{{ visibleFollowupNotes.length }} / {{ followupNotes.length }} 条</span>
+            </div>
+            <div class="agent-note-filter">
+              <button type="button" :class="{ active: followupNoteFilter === 'all' }" @click="followupNoteFilter = 'all'">全部</button>
+              <button type="button" :class="{ active: followupNoteFilter === 'pinned' }" @click="followupNoteFilter = 'pinned'">仅置顶</button>
+            </div>
+          </div>
           <div
-            v-for="note in followupNotes"
+            v-for="note in visibleFollowupNotes"
             :key="note.id"
             class="agent-note-item"
+            :class="{ expanded: expandedFollowupNoteIds.includes(note.id) }"
           >
-            <div class="agent-note-meta">
+            <div class="agent-note-head" @click="toggleFollowupNote(note.id)">
               <div class="agent-note-meta-main">
-                <strong>{{ note.title }}</strong>
+                <strong>
+                  <span v-if="note.pinned" class="agent-note-pin-badge">置顶</span>
+                  {{ note.title }}
+                </strong>
                 <span>{{ note.createdAt }}</span>
               </div>
               <div class="agent-note-actions">
-                <el-button link @click="renameFollowupNote(note)">重命名</el-button>
-                <el-button link type="danger" @click="removeFollowupNote(note)">删除</el-button>
+                <el-button link type="success" @click.stop="toggleFollowupNotePinned(note)">{{ note.pinned ? "取消置顶" : "置顶" }}</el-button>
+                <small class="agent-note-toggle">{{ expandedFollowupNoteIds.includes(note.id) ? "收起" : "展开" }}</small>
+                <el-button link @click.stop="copyFollowupNoteContent(note)">复制正文</el-button>
+                <el-button link @click.stop="editFollowupNoteContent(note)">编辑正文</el-button>
+                <el-button link @click.stop="renameFollowupNote(note)">重命名</el-button>
+                <el-button link type="danger" @click.stop="removeFollowupNote(note)">删除</el-button>
               </div>
             </div>
-            <p>{{ note.content }}</p>
+            <div v-if="expandedFollowupNoteIds.includes(note.id)" class="agent-note-body">
+              <div v-if="confidenceLabel(note.answerConfidence)" class="agent-note-confidence-row">
+                <span>结论把握度</span>
+                <strong class="agent-confidence-value" :class="normalizeConfidence(note.answerConfidence)">
+                  {{ confidenceLabel(note.answerConfidence) }}
+                </strong>
+              </div>
+              <div v-if="parseRemainingUncertainties(note.remainingUncertaintiesJson).length" class="agent-note-uncertainty-box">
+                <span>剩余不确定性</span>
+                <ul>
+                  <li v-for="item in parseRemainingUncertainties(note.remainingUncertaintiesJson)" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+              <p>{{ note.content }}</p>
+            </div>
+          </div>
+          <div v-if="!visibleFollowupNotes.length" class="detail-image-empty">
+            当前筛选条件下暂无记录
           </div>
         </div>
         <div v-else class="detail-image-empty">

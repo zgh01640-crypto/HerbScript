@@ -10,6 +10,8 @@ public record AgentNoteSaveRequest(
         @NotNull Long anchorId,
         @NotBlank String noteType,
         @NotBlank @Size(max = 255) String title,
-        @NotBlank String content
+        @NotBlank String content,
+        String answerConfidence,
+        String remainingUncertaintiesJson
 ) {
 }

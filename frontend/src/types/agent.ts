@@ -5,6 +5,8 @@ export interface AgentStructuredResponse {
   observations: string[];
   risks: string[];
   suggestions: string[];
+  answerConfidence?: string | null;
+  remainingUncertainties?: string[] | null;
 }
 
 export interface AgentMessage {
@@ -76,6 +78,9 @@ export interface AgentNote {
   noteType: string;
   title: string;
   content: string;
+  answerConfidence?: string | null;
+  remainingUncertaintiesJson?: string | null;
+  pinned: boolean;
   createdAt: string;
 }
 

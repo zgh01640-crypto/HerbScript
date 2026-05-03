@@ -26,6 +26,7 @@ type AgentTimelineItem = {
   id: string;
   label: string;
   detail?: string;
+  metaLines?: string[];
   status: "running" | "success" | "error";
   createdAt?: string;
 };
@@ -44,8 +45,11 @@ const toolCalls = ref<AgentToolCall[]>([]);
 const liveToolCalls = ref<AgentToolCall[]>([]);
 const traces = ref<AgentTrace[]>([]);
 const notes = ref<AgentNote[]>([]);
+const noteFilter = ref<"all" | "pinned">("all");
 const promptInput = ref("");
 const outputDraft = ref("");
+const draftConfidence = ref<string | null>(null);
+const draftRemainingUncertainties = ref<string[]>([]);
 const streamingCursorId = ref<number | null>(null);
 const retryPrompt = ref("");
 const MIN_THINKING_DURATION = 900;
@@ -55,6 +59,7 @@ const contentChunkQueue = ref<string[]>([]);
 const chunkFlushRunning = ref(false);
 const expandedToolCallIds = ref<number[]>([]);
 const liveTimeline = ref<AgentTimelineItem[]>([]);
+const expandedNoteIds = ref<number[]>([]);
 
 const anchorType = computed<AgentAnchorType | null>(() => {
   const value = route.query.anchorType;
@@ -146,6 +151,11 @@ const visibleExpandedToolCallIds = computed(() => {
   const currentIds = new Set(displayToolCalls.value.map((item) => item.id));
   return expandedToolCallIds.value.filter((id) => currentIds.has(id));
 });
+const visibleNotes = computed(() =>
+  noteFilter.value === "pinned"
+    ? notes.value.filter((item) => item.pinned)
+    : notes.value
+);
 const buildDefaultTitle = () => {
   const title = String(route.query.title || "").trim();
   if (title) {
@@ -159,6 +169,14 @@ const buildDefaultTitle = () => {
   }
   return "智能体会话";
 };
+
+const sortAgentNotes = (items: AgentNote[]) =>
+  [...items].sort((left, right) => {
+    if (left.pinned !== right.pinned) {
+      return left.pinned ? -1 : 1;
+    }
+    return right.createdAt.localeCompare(left.createdAt);
+  });
 
 const syncRouteSession = async (sessionId: number) => {
   if (sessionIdFromRoute.value === sessionId) {
@@ -205,7 +223,8 @@ const refreshSessionState = async (sessionId: number) => {
   liveToolCalls.value = [];
   expandedToolCallIds.value = [];
   traces.value = sessionTraces;
-  notes.value = sessionNotes;
+  notes.value = sortAgentNotes(sessionNotes);
+  expandedNoteIds.value = [];
 };
 
 const createAndOpenSession = async () => {
@@ -310,6 +329,58 @@ const sendMessage = async (preset?: string) => {
             detail: "正在调用工具",
             status: "running",
             createdAt: tool.createdAt
+          });
+          return;
+        }
+
+        if (eventName === "tool_plan" && payload && typeof payload === "object") {
+          const plan = payload as {
+            tools?: string[];
+            rationale?: string;
+            informationNeeds?: string[];
+            toolArguments?: unknown;
+            enoughInformation?: boolean;
+            fallbackUsed?: boolean;
+          };
+          const tools = Array.isArray(plan.tools) ? plan.tools : [];
+          pushOrUpdateTimeline({
+            id: "tool-plan",
+            label: plan.fallbackUsed ? "默认工具顺序" : "模型规划工具顺序",
+            detail: tools.length ? tools.join(" → ") : plan.enoughInformation ? "当前信息已足够，无需调用工具" : "未返回工具顺序",
+            metaLines: [
+              ...(plan.rationale ? [plan.rationale] : []),
+              ...(plan.enoughInformation ? ["决策：当前上下文信息已足够回答问题"] : ["决策：仍需补充工具信息"]),
+              ...((Array.isArray(plan.informationNeeds) ? plan.informationNeeds : []).map((item) => `信息缺口：${item}`)),
+              ...formatToolArguments(plan.toolArguments).map((item) => `参数意图：${item}`)
+            ],
+            status: "success",
+            createdAt: new Date().toISOString().slice(0, 19).replace("T", " ")
+          });
+          return;
+        }
+
+        if (eventName === "tool_replan" && payload && typeof payload === "object") {
+          const plan = payload as {
+            tools?: string[];
+            rationale?: string;
+            informationNeeds?: string[];
+            toolArguments?: unknown;
+            enoughInformation?: boolean;
+            fallbackUsed?: boolean;
+          };
+          const tools = Array.isArray(plan.tools) ? plan.tools : [];
+          pushOrUpdateTimeline({
+            id: "tool-replan",
+            label: plan.enoughInformation ? "停止追加工具" : plan.fallbackUsed ? "跳过追加工具" : "追加工具规划",
+            detail: tools.length ? tools.join(" → ") : plan.enoughInformation ? "当前信息已足够，无需继续补工具" : "本轮无需追加工具",
+            metaLines: [
+              ...(plan.rationale ? [plan.rationale] : []),
+              ...(plan.enoughInformation ? ["决策：当前信息已足够，可以停止继续补工具"] : ["决策：仍存在信息缺口，必要时继续补工具"]),
+              ...((Array.isArray(plan.informationNeeds) ? plan.informationNeeds : []).map((item) => `补充目标：${item}`)),
+              ...formatToolArguments(plan.toolArguments).map((item) => `参数意图：${item}`)
+            ],
+            status: "success",
+            createdAt: new Date().toISOString().slice(0, 19).replace("T", " ")
           });
           return;
         }
@@ -487,17 +558,71 @@ const pushOrUpdateTimeline = (item: AgentTimelineItem) => {
   ));
 };
 
+const parseTracePayload = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
 const buildTraceTimelineFromState = () => {
-  const timeline: AgentTimelineItem[] = toolCalls.value
+  const timeline: AgentTimelineItem[] = [];
+  const tracePayload = parseTracePayload(latestTrace.value?.tracePayload);
+  const plannedTools = Array.isArray(tracePayload?.plannedTools) ? tracePayload.plannedTools.map(String) : [];
+  const additionalPlannedTools = Array.isArray(tracePayload?.additionalPlannedTools)
+    ? tracePayload.additionalPlannedTools.map(String)
+    : [];
+
+  if (tracePayload) {
+    timeline.push({
+      id: "trace-tool-plan",
+      label: tracePayload.toolPlanningMode === "default" ? "默认工具顺序" : "模型规划工具顺序",
+      detail: plannedTools.length
+        ? plannedTools.join(" → ")
+        : tracePayload.toolPlanEnoughInformation
+          ? "当前信息已足够，无需调用工具"
+          : "未记录工具顺序",
+      metaLines: [
+        ...(tracePayload.toolPlanRationale ? [String(tracePayload.toolPlanRationale)] : []),
+        ...(tracePayload.toolPlanEnoughInformation ? ["决策：当前上下文信息已足够回答问题"] : []),
+        ...formatToolArguments(tracePayload.toolArguments).map((item) => `参数意图：${item}`)
+      ],
+      status: "success",
+      createdAt: latestTrace.value?.createdAt ?? undefined
+    });
+
+    timeline.push({
+      id: "trace-tool-replan",
+      label: tracePayload.additionalToolPlanEnoughInformation ? "停止追加工具" : "追加工具规划",
+      detail: additionalPlannedTools.length
+        ? additionalPlannedTools.join(" → ")
+        : tracePayload.additionalToolPlanEnoughInformation
+          ? "当前信息已足够，无需继续补工具"
+          : "本轮未追加工具",
+      metaLines: [
+        ...(tracePayload.additionalToolPlanRationale ? [String(tracePayload.additionalToolPlanRationale)] : []),
+        ...(tracePayload.additionalToolPlanEnoughInformation ? ["决策：当前信息已足够，可以停止继续补工具"] : []),
+        ...formatToolArguments(tracePayload.additionalToolArguments).map((item) => `参数意图：${item}`)
+      ],
+      status: "success",
+      createdAt: latestTrace.value?.createdAt ?? undefined
+    });
+  }
+
+  timeline.push(...toolCalls.value
     .slice()
     .reverse()
-    .map((call) => ({
+    .map((call): AgentTimelineItem => ({
       id: `tool-${call.id}`,
       label: call.toolLabel || call.toolName,
       detail: call.latencyMs ? `${call.latencyMs}ms` : call.status,
       status: call.status === "running" ? "running" : call.status === "error" ? "error" : "success",
       createdAt: call.createdAt
-    }));
+    })));
 
   if (latestTrace.value) {
     timeline.push({
@@ -626,6 +751,55 @@ const formatJsonPreview = (value: unknown) => {
   }
 };
 
+const parseJsonObject = (value: unknown): Record<string, unknown> | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return typeof value === "object" ? (value as Record<string, unknown>) : null;
+};
+
+const formatToolArguments = (value: unknown) => {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  return Object.entries(value as Record<string, unknown>).map(
+    ([toolName, args]) => `${toolName}: ${JSON.stringify(args)}`
+  );
+};
+
+const summarizeToolInput = (value: unknown) => {
+  const source = parseJsonObject(value);
+  if (!source) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  if (source.patientId != null) {
+    parts.push(`患者#${source.patientId}`);
+  }
+  if (source.prescriptionId != null) {
+    parts.push(`处方#${source.prescriptionId}`);
+  }
+  if (source.leftPrescriptionId != null && source.rightPrescriptionId != null) {
+    parts.push(`对比 ${source.leftPrescriptionId} → ${source.rightPrescriptionId}`);
+  }
+  if (source.limit != null) {
+    parts.push(`limit=${source.limit}`);
+  }
+  return parts.join(" · ");
+};
+
 const parseStructuredPayload = (value: unknown): AgentStructuredResponse | null => {
   if (!value) {
     return null;
@@ -646,6 +820,42 @@ const parseStructuredPayload = (value: unknown): AgentStructuredResponse | null 
   return null;
 };
 
+const isUncertaintyRisk = (value: string) => {
+  const keywords = ["可能", "建议复核", "待核实", "不确定", "需确认", "疑似", "建议进一步"];
+  return keywords.some((keyword) => value.includes(keyword));
+};
+
+const normalizeConfidence = (value?: string | null) => {
+  const normalized = (value || "").toLowerCase();
+  if (normalized === "high" || normalized === "medium" || normalized === "low") {
+    return normalized;
+  }
+  return "medium";
+};
+
+const confidenceLabel = (value?: string | null) => {
+  const normalized = normalizeConfidence(value);
+  if (normalized === "high") {
+    return "高";
+  }
+  if (normalized === "low") {
+    return "低";
+  }
+  return "中";
+};
+
+const parseRemainingUncertainties = (value?: string | null) => {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
 const normalizeStructuredMessage = (message: AgentMessage): AgentMessage => ({
   ...message,
   structuredPayload: parseStructuredPayload(message.structuredPayload)
@@ -659,12 +869,19 @@ const buildStructuredDraft = (message: AgentMessageView) => {
 
   const sections = [
     `摘要：${structured.summary}`,
+    `结论把握度：${confidenceLabel(structured.answerConfidence)}`,
     structured.observations.length ? `观察：\n- ${structured.observations.join("\n- ")}` : "",
     structured.risks.length ? `风险提醒：\n- ${structured.risks.join("\n- ")}` : "",
-    structured.suggestions.length ? `建议：\n- ${structured.suggestions.join("\n- ")}` : ""
+    structured.suggestions.length ? `建议：\n- ${structured.suggestions.join("\n- ")}` : "",
+    structured.remainingUncertainties?.length ? `剩余不确定性：\n- ${structured.remainingUncertainties.join("\n- ")}` : ""
   ].filter(Boolean);
 
   return sections.join("\n\n");
+};
+
+const syncDraftMetadata = (message: AgentMessageView) => {
+  draftConfidence.value = message.structuredPayload?.answerConfidence ?? null;
+  draftRemainingUncertainties.value = message.structuredPayload?.remainingUncertainties ?? [];
 };
 
 const appendToDraft = (message: AgentMessageView) => {
@@ -675,11 +892,13 @@ const appendToDraft = (message: AgentMessageView) => {
   outputDraft.value = outputDraft.value.trim()
     ? `${outputDraft.value.trim()}\n\n${block}`
     : block;
+  syncDraftMetadata(message);
   ElMessage.success("已插入草稿区");
 };
 
 const replaceDraft = (message: AgentMessageView) => {
   outputDraft.value = buildStructuredDraft(message).trim();
+  syncDraftMetadata(message);
   ElMessage.success("已生成新的草稿");
 };
 
@@ -705,6 +924,12 @@ const copyDraft = async () => {
   }
 };
 
+const clearDraft = () => {
+  outputDraft.value = "";
+  draftConfidence.value = null;
+  draftRemainingUncertainties.value = [];
+};
+
 const saveDraftNote = async () => {
   if (!anchorType.value || !anchorId.value || !outputDraft.value.trim()) {
     ElMessage.warning("当前草稿区还没有可保存的内容");
@@ -726,9 +951,14 @@ const saveDraftNote = async () => {
     anchorId.value,
     draftNoteType.value,
     `${titlePrefix} ${timeLabel}`,
-    outputDraft.value
+    outputDraft.value,
+    {
+      answerConfidence: draftConfidence.value,
+      remainingUncertainties: draftRemainingUncertainties.value
+    }
   );
-  notes.value = [note, ...notes.value.filter((item) => item.id !== note.id)];
+  notes.value = sortAgentNotes([note, ...notes.value.filter((item) => item.id !== note.id)]);
+  expandedNoteIds.value = [note.id, ...expandedNoteIds.value];
   ElMessage.success("草稿已保存进系统");
 };
 
@@ -737,6 +967,7 @@ const removeSavedNote = async (note: AgentNote) => {
     await ElMessageBox.confirm(`确认删除记录「${note.title}」吗？`, "删除智能体记录", { type: "warning" });
     await agentService.deleteNote(note.id);
     notes.value = notes.value.filter((item) => item.id !== note.id);
+    expandedNoteIds.value = expandedNoteIds.value.filter((id) => id !== note.id);
     ElMessage.success("记录已删除");
   } catch {
     // noop
@@ -750,11 +981,54 @@ const renameSavedNote = async (note: AgentNote) => {
       inputPlaceholder: "请输入标题"
     });
     const updated = await agentService.updateNoteTitle(note.id, value);
-    notes.value = notes.value.map((item) => (item.id === note.id ? updated : item));
+    notes.value = sortAgentNotes(notes.value.map((item) => (item.id === note.id ? updated : item)));
     ElMessage.success("标题已更新");
   } catch {
     // noop
   }
+};
+
+const editSavedNoteContent = async (note: AgentNote) => {
+  try {
+    const { value } = await ElMessageBox.prompt("请编辑记录正文", "编辑智能体记录", {
+      inputValue: note.content,
+      inputType: "textarea",
+      inputPlaceholder: "请输入记录正文"
+    });
+    const updated = await agentService.updateNoteContent(note.id, value);
+    notes.value = sortAgentNotes(notes.value.map((item) => (item.id === note.id ? updated : item)));
+    expandedNoteIds.value = expandedNoteIds.value.includes(note.id) ? expandedNoteIds.value : [note.id, ...expandedNoteIds.value];
+    ElMessage.success("正文已更新");
+  } catch {
+    // noop
+  }
+};
+
+const toggleSavedNotePinned = async (note: AgentNote) => {
+  try {
+    const updated = await agentService.updateNotePinned(note.id, !note.pinned);
+    notes.value = sortAgentNotes(notes.value.map((item) => (item.id === note.id ? updated : item)));
+    ElMessage.success(updated.pinned ? "记录已置顶" : "已取消置顶");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "更新置顶状态失败");
+  }
+};
+
+const copyNoteContent = async (note: AgentNote) => {
+  try {
+    await navigator.clipboard.writeText(note.content);
+    ElMessage.success("正文已复制");
+  } catch {
+    ElMessage.error("复制失败，请手动复制");
+  }
+};
+
+const toggleNote = (noteId: number) => {
+  if (expandedNoteIds.value.includes(noteId)) {
+    expandedNoteIds.value = expandedNoteIds.value.filter((id) => id !== noteId);
+    return;
+  }
+  expandedNoteIds.value = [...expandedNoteIds.value, noteId];
 };
 
 const deleteSession = async (session: AgentSessionSummary) => {
@@ -883,6 +1157,12 @@ onUnmounted(() => {
                         <span>摘要</span>
                         <strong>{{ message.structuredPayload.summary }}</strong>
                       </div>
+                      <div class="agent-structured-card confidence">
+                        <span>结论把握度</span>
+                        <strong class="agent-confidence-value" :class="normalizeConfidence(message.structuredPayload.answerConfidence)">
+                          {{ confidenceLabel(message.structuredPayload.answerConfidence) }}
+                        </strong>
+                      </div>
                       <div v-if="message.structuredPayload.observations.length" class="agent-structured-card">
                         <span>观察</span>
                         <ul>
@@ -892,13 +1172,31 @@ onUnmounted(() => {
                       <div v-if="message.structuredPayload.risks.length" class="agent-structured-card warning">
                         <span>风险提醒</span>
                         <ul>
-                          <li v-for="item in message.structuredPayload.risks" :key="item">{{ item }}</li>
+                          <li
+                            v-for="item in message.structuredPayload.risks"
+                            :key="item"
+                            :class="{ uncertainty: isUncertaintyRisk(item) }"
+                          >
+                            <small v-if="isUncertaintyRisk(item)" class="agent-risk-badge">待核实</small>
+                            {{ item }}
+                          </li>
                         </ul>
                       </div>
                       <div v-if="message.structuredPayload.suggestions.length" class="agent-structured-card">
                         <span>建议</span>
                         <ul>
                           <li v-for="item in message.structuredPayload.suggestions" :key="item">{{ item }}</li>
+                        </ul>
+                      </div>
+                      <div
+                        v-if="message.structuredPayload.remainingUncertainties?.length"
+                        class="agent-structured-card caution"
+                      >
+                        <span>剩余不确定性</span>
+                        <ul>
+                          <li v-for="item in message.structuredPayload.remainingUncertainties" :key="item">
+                            {{ item }}
+                          </li>
                         </ul>
                       </div>
                     </div>
@@ -954,7 +1252,7 @@ onUnmounted(() => {
                 placeholder="点击左侧回答中的“插入草稿”或“替换草稿”，在这里沉淀结果。"
               />
               <div class="agent-draft-actions">
-                <el-button @click="outputDraft = ''">清空草稿</el-button>
+                <el-button @click="clearDraft">清空草稿</el-button>
                 <div class="agent-draft-action-group">
                   <el-button plain @click="copyDraft">复制草稿</el-button>
                   <el-button type="primary" @click="saveDraftNote">{{ draftSaveLabel }}</el-button>
@@ -962,25 +1260,56 @@ onUnmounted(() => {
               </div>
               <div v-if="notes.length" class="agent-note-list">
                 <div class="agent-note-list-head">
-                  <strong>最近保存记录</strong>
-                  <span>{{ notes.length }} 条</span>
+                  <div class="agent-note-list-summary">
+                    <strong>最近保存记录</strong>
+                    <span>{{ visibleNotes.length }} / {{ notes.length }} 条</span>
+                  </div>
+                  <div class="agent-note-filter">
+                    <button type="button" :class="{ active: noteFilter === 'all' }" @click="noteFilter = 'all'">全部</button>
+                    <button type="button" :class="{ active: noteFilter === 'pinned' }" @click="noteFilter = 'pinned'">仅置顶</button>
+                  </div>
                 </div>
                 <div
-                  v-for="note in notes"
+                  v-for="note in visibleNotes"
                   :key="note.id"
                   class="agent-note-item"
+                  :class="{ expanded: expandedNoteIds.includes(note.id) }"
                 >
-                  <div class="agent-note-meta">
+                  <div class="agent-note-head" @click="toggleNote(note.id)">
                     <div class="agent-note-meta-main">
-                      <strong>{{ note.title }}</strong>
+                      <strong>
+                        <span v-if="note.pinned" class="agent-note-pin-badge">置顶</span>
+                        {{ note.title }}
+                      </strong>
                       <span>{{ note.createdAt }}</span>
                     </div>
                     <div class="agent-note-actions">
-                      <el-button link @click="renameSavedNote(note)">重命名</el-button>
-                      <el-button link type="danger" @click="removeSavedNote(note)">删除</el-button>
+                      <el-button link type="success" @click.stop="toggleSavedNotePinned(note)">{{ note.pinned ? "取消置顶" : "置顶" }}</el-button>
+                      <small class="agent-note-toggle">{{ expandedNoteIds.includes(note.id) ? "收起" : "展开" }}</small>
+                      <el-button link @click.stop="copyNoteContent(note)">复制正文</el-button>
+                      <el-button link @click.stop="editSavedNoteContent(note)">编辑正文</el-button>
+                      <el-button link @click.stop="renameSavedNote(note)">重命名</el-button>
+                      <el-button link type="danger" @click.stop="removeSavedNote(note)">删除</el-button>
                     </div>
                   </div>
-                  <p>{{ note.content }}</p>
+                  <div v-if="expandedNoteIds.includes(note.id)" class="agent-note-body">
+                    <div v-if="confidenceLabel(note.answerConfidence)" class="agent-note-confidence-row">
+                      <span>结论把握度</span>
+                      <strong class="agent-confidence-value" :class="normalizeConfidence(note.answerConfidence)">
+                        {{ confidenceLabel(note.answerConfidence) }}
+                      </strong>
+                    </div>
+                    <div v-if="parseRemainingUncertainties(note.remainingUncertaintiesJson).length" class="agent-note-uncertainty-box">
+                      <span>剩余不确定性</span>
+                      <ul>
+                        <li v-for="item in parseRemainingUncertainties(note.remainingUncertaintiesJson)" :key="item">{{ item }}</li>
+                      </ul>
+                    </div>
+                    <p>{{ note.content }}</p>
+                  </div>
+                </div>
+                <div v-if="!visibleNotes.length" class="detail-image-empty">
+                  当前筛选条件下暂无记录
                 </div>
               </div>
             </div>
@@ -1006,6 +1335,7 @@ onUnmounted(() => {
                 <div class="agent-timeline-body">
                   <strong>{{ item.label }}</strong>
                   <span v-if="item.detail">{{ item.detail }}</span>
+                  <span v-for="line in item.metaLines ?? []" :key="line" class="agent-timeline-meta">{{ line }}</span>
                   <small v-if="item.createdAt">{{ item.createdAt }}</small>
                 </div>
               </div>
@@ -1030,10 +1360,13 @@ onUnmounted(() => {
                   </div>
                   <small>{{ visibleExpandedToolCallIds.includes(call.id) ? "收起" : "展开" }}</small>
                 </div>
+                <div v-if="summarizeToolInput(call.inputJson)" class="agent-tool-args-summary">
+                  实际参数：{{ summarizeToolInput(call.inputJson) }}
+                </div>
                 <small>{{ call.status === "running" ? "执行中" : call.status }}<template v-if="call.latencyMs"> · {{ call.latencyMs }}ms</template></small>
                 <div v-if="visibleExpandedToolCallIds.includes(call.id)" class="agent-tool-detail">
                   <div>
-                    <span>输入</span>
+                    <span>实际执行参数</span>
                     <pre>{{ formatJsonPreview(call.inputJson) }}</pre>
                   </div>
                   <div>

@@ -52,7 +52,14 @@ public class PatientSummarySkill implements AgentSkill {
         return new SkillExecutionResult(
                 name(),
                 summary,
-                new AgentStructuredResponse(summary, observations, risks, suggestions),
+                new AgentStructuredResponse(
+                        summary,
+                        observations,
+                        risks,
+                        suggestions,
+                        "medium",
+                        List.of("当前结果主要基于系统已载入的患者主档与历史处方，仍建议结合临床症状和医师判断复核")
+                ),
                 List.of("get_patient_profile", "get_patient_prescriptions", "get_common_herbs")
         );
     }

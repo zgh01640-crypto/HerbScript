@@ -71,7 +71,14 @@ public class PrescriptionAnalysisSkill implements AgentSkill {
         return new SkillExecutionResult(
                 name(),
                 summary,
-                new AgentStructuredResponse(summary, observations, risks, suggestions),
+                new AgentStructuredResponse(
+                        summary,
+                        observations,
+                        risks,
+                        suggestions,
+                        "medium",
+                        List.of("若需形成更稳健结论，仍建议结合最新校对状态、原图复核与历史处方背景进一步确认")
+                ),
                 List.of("get_prescription_detail", "compare_prescriptions")
         );
     }

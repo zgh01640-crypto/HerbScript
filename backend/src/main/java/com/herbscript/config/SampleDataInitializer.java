@@ -286,6 +286,9 @@ public class SampleDataInitializer implements CommandLineRunner {
                   note_type VARCHAR(64) NOT NULL,
                   title VARCHAR(255) NOT NULL,
                   content LONGTEXT NOT NULL,
+                  answer_confidence VARCHAR(16) NULL,
+                  remaining_uncertainties_json LONGTEXT NULL,
+                  is_pinned TINYINT NOT NULL DEFAULT 0,
                   created_by BIGINT NOT NULL,
                   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -296,6 +299,49 @@ public class SampleDataInitializer implements CommandLineRunner {
                   KEY idx_agent_note_created_at (created_at)
                 )
                 """);
+
+        Integer pinnedColumnCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'agent_note'
+                  AND COLUMN_NAME = 'is_pinned'
+                """,
+                Integer.class
+        );
+
+        if (pinnedColumnCount == null || pinnedColumnCount == 0) {
+            jdbcTemplate.execute("ALTER TABLE agent_note ADD COLUMN is_pinned TINYINT NOT NULL DEFAULT 0 AFTER content");
+        }
+
+        Integer confidenceColumnCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'agent_note'
+                  AND COLUMN_NAME = 'answer_confidence'
+                """,
+                Integer.class
+        );
+        if (confidenceColumnCount == null || confidenceColumnCount == 0) {
+            jdbcTemplate.execute("ALTER TABLE agent_note ADD COLUMN answer_confidence VARCHAR(16) NULL AFTER content");
+        }
+
+        Integer uncertaintyColumnCount = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'agent_note'
+                  AND COLUMN_NAME = 'remaining_uncertainties_json'
+                """,
+                Integer.class
+        );
+        if (uncertaintyColumnCount == null || uncertaintyColumnCount == 0) {
+            jdbcTemplate.execute("ALTER TABLE agent_note ADD COLUMN remaining_uncertainties_json LONGTEXT NULL AFTER answer_confidence");
+        }
     }
 
     private void ensureDefaultModelProfile() {

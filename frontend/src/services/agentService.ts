@@ -141,7 +141,8 @@ export const agentService = {
     anchorId: number,
     noteType: string,
     title: string,
-    content: string
+    content: string,
+    metadata?: { answerConfidence?: string | null; remainingUncertainties?: string[] | null }
   ): Promise<AgentNote> {
     const response = await http.post<ApiResponse<AgentNote>>("/api/agent/notes", {
       sessionId,
@@ -149,14 +150,33 @@ export const agentService = {
       anchorId,
       noteType,
       title,
-      content
+      content,
+      answerConfidence: metadata?.answerConfidence ?? null,
+      remainingUncertaintiesJson: metadata?.remainingUncertainties?.length
+        ? JSON.stringify(metadata.remainingUncertainties)
+        : null
+    });
+    return response.data;
+  },
+
+  async updateNote(noteId: number, payload: { title?: string; content?: string }): Promise<AgentNote> {
+    const response = await http.put<ApiResponse<AgentNote>>(`/api/agent/notes/${noteId}`, {
+      ...payload
     });
     return response.data;
   },
 
   async updateNoteTitle(noteId: number, title: string): Promise<AgentNote> {
-    const response = await http.put<ApiResponse<AgentNote>>(`/api/agent/notes/${noteId}`, {
-      title
+    return this.updateNote(noteId, { title });
+  },
+
+  async updateNoteContent(noteId: number, content: string): Promise<AgentNote> {
+    return this.updateNote(noteId, { content });
+  },
+
+  async updateNotePinned(noteId: number, pinned: boolean): Promise<AgentNote> {
+    const response = await http.put<ApiResponse<AgentNote>>(`/api/agent/notes/${noteId}/pin`, {
+      pinned
     });
     return response.data;
   },

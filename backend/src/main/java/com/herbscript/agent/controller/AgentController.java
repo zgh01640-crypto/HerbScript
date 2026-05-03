@@ -3,6 +3,7 @@ package com.herbscript.agent.controller;
 import com.herbscript.agent.dto.AgentChatRequest;
 import com.herbscript.agent.dto.AgentChatResponse;
 import com.herbscript.agent.dto.AgentNoteResponse;
+import com.herbscript.agent.dto.AgentNotePinRequest;
 import com.herbscript.agent.dto.AgentNoteSaveRequest;
 import com.herbscript.agent.dto.AgentNoteUpdateRequest;
 import com.herbscript.agent.dto.AgentSessionCreateRequest;
@@ -134,7 +135,15 @@ public class AgentController {
             @PathVariable Long noteId,
             @Valid @RequestBody AgentNoteUpdateRequest request
     ) {
-        return ApiResponse.success(noteService.updateTitle(noteId, request));
+        return ApiResponse.success(noteService.update(noteId, request));
+    }
+
+    @PutMapping("/notes/{noteId}/pin")
+    public ApiResponse<AgentNoteResponse> updateNotePinned(
+            @PathVariable Long noteId,
+            @RequestBody AgentNotePinRequest request
+    ) {
+        return ApiResponse.success(noteService.setPinned(noteId, request.pinned()));
     }
 
     @DeleteMapping("/notes/{noteId}")

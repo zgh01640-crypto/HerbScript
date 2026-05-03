@@ -8,6 +8,9 @@ public record AgentNoteResponse(
         String noteType,
         String title,
         String content,
+        String answerConfidence,
+        String remainingUncertaintiesJson,
+        boolean pinned,
         String createdAt
 ) {
 }

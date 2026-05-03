@@ -22,7 +22,47 @@ const imagePreviewVisible = ref(false);
 const previewSaving = ref(false);
 const previewEditableItems = ref<PrescriptionItemInput[]>([]);
 const summaryNotes = ref<AgentNote[]>([]);
+const expandedSummaryNoteIds = ref<number[]>([]);
+const summaryNoteFilter = ref<"all" | "pinned">("all");
 const summaryGenerating = ref(false);
+
+const normalizeConfidence = (value?: string | null) => {
+  const normalized = (value || "").toLowerCase();
+  return normalized === "high" || normalized === "medium" || normalized === "low" ? normalized : "";
+};
+
+const confidenceLabel = (value?: string | null) => {
+  const normalized = normalizeConfidence(value);
+  if (normalized === "high") return "高";
+  if (normalized === "low") return "低";
+  if (normalized === "medium") return "中";
+  return "";
+};
+
+const parseRemainingUncertainties = (value?: string | null) => {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
+const sortAgentNotes = (items: AgentNote[]) =>
+  [...items].sort((left, right) => {
+    if (left.pinned !== right.pinned) {
+      return left.pinned ? -1 : 1;
+    }
+    return right.createdAt.localeCompare(left.createdAt);
+  });
+const visibleSummaryNotes = computed(() =>
+  summaryNoteFilter.value === "pinned"
+    ? summaryNotes.value.filter((item) => item.pinned)
+    : summaryNotes.value
+);
 const patientHistoryCount = computed(() => patientHistory.value.length + (data.value?.patientId ? 1 : 0));
 const latestPrescriptionDate = computed(() => {
   const dates = [
@@ -69,8 +109,11 @@ const loadDetail = async () => {
     return detail;
   });
   syncPreviewItems();
-  summaryNotes.value = (await agentService.listNotes("prescription", prescriptionId.value))
-    .filter((item) => item.noteType === "prescription_summary");
+  summaryNotes.value = sortAgentNotes(
+    (await agentService.listNotes("prescription", prescriptionId.value))
+      .filter((item) => item.noteType === "prescription_summary")
+  );
+  expandedSummaryNoteIds.value = [];
 };
 
 onMounted(() => {
@@ -183,9 +226,14 @@ const generatePrescriptionSummary = async () => {
       prescriptionId.value,
       "prescription_summary",
       title,
-      content
+      content,
+      {
+        answerConfidence: response.structured?.answerConfidence ?? null,
+        remainingUncertainties: response.structured?.remainingUncertainties ?? []
+      }
     );
-    summaryNotes.value = [note, ...summaryNotes.value];
+    summaryNotes.value = sortAgentNotes([note, ...summaryNotes.value]);
+    expandedSummaryNoteIds.value = [note.id, ...expandedSummaryNoteIds.value];
     ElMessage.success("智能体处方摘要已生成并保存");
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : "生成处方摘要失败");
@@ -199,10 +247,17 @@ const removeSummaryNote = async (note: AgentNote) => {
     await ElMessageBox.confirm(`确认删除记录「${note.title}」吗？`, "删除智能体记录", { type: "warning" });
     await agentService.deleteNote(note.id);
     summaryNotes.value = summaryNotes.value.filter((item) => item.id !== note.id);
+    expandedSummaryNoteIds.value = expandedSummaryNoteIds.value.filter((id) => id !== note.id);
     ElMessage.success("记录已删除");
   } catch {
     // noop
   }
+};
+
+const toggleSummaryNote = (noteId: number) => {
+  expandedSummaryNoteIds.value = expandedSummaryNoteIds.value.includes(noteId)
+    ? expandedSummaryNoteIds.value.filter((id) => id !== noteId)
+    : [...expandedSummaryNoteIds.value, noteId];
 };
 
 const renameSummaryNote = async (note: AgentNote) => {
@@ -212,10 +267,45 @@ const renameSummaryNote = async (note: AgentNote) => {
       inputPlaceholder: "请输入标题"
     });
     const updated = await agentService.updateNoteTitle(note.id, value);
-    summaryNotes.value = summaryNotes.value.map((item) => (item.id === note.id ? updated : item));
+    summaryNotes.value = sortAgentNotes(summaryNotes.value.map((item) => (item.id === note.id ? updated : item)));
     ElMessage.success("标题已更新");
   } catch {
     // noop
+  }
+};
+
+const editSummaryNoteContent = async (note: AgentNote) => {
+  try {
+    const { value } = await ElMessageBox.prompt("请编辑处方摘要正文", "编辑智能体记录", {
+      inputValue: note.content,
+      inputType: "textarea",
+      inputPlaceholder: "请输入处方摘要正文"
+    });
+    const updated = await agentService.updateNoteContent(note.id, value);
+    summaryNotes.value = sortAgentNotes(summaryNotes.value.map((item) => (item.id === note.id ? updated : item)));
+    expandedSummaryNoteIds.value = expandedSummaryNoteIds.value.includes(note.id) ? expandedSummaryNoteIds.value : [note.id, ...expandedSummaryNoteIds.value];
+    ElMessage.success("正文已更新");
+  } catch {
+    // noop
+  }
+};
+
+const toggleSummaryNotePinned = async (note: AgentNote) => {
+  try {
+    const updated = await agentService.updateNotePinned(note.id, !note.pinned);
+    summaryNotes.value = sortAgentNotes(summaryNotes.value.map((item) => (item.id === note.id ? updated : item)));
+    ElMessage.success(updated.pinned ? "记录已置顶" : "已取消置顶");
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "更新置顶状态失败");
+  }
+};
+
+const copySummaryNoteContent = async (note: AgentNote) => {
+  try {
+    await navigator.clipboard.writeText(note.content);
+    ElMessage.success("正文已复制");
+  } catch {
+    ElMessage.error("复制失败，请手动复制");
   }
 };
 </script>
@@ -312,22 +402,57 @@ const renameSummaryNote = async (note: AgentNote) => {
           <el-button type="primary" plain :loading="summaryGenerating" @click="generatePrescriptionSummary">一键生成处方摘要</el-button>
         </template>
         <div v-if="summaryNotes.length" class="agent-note-list">
+          <div class="agent-note-list-head">
+            <div class="agent-note-list-summary">
+              <strong>记录列表</strong>
+              <span>{{ visibleSummaryNotes.length }} / {{ summaryNotes.length }} 条</span>
+            </div>
+            <div class="agent-note-filter">
+              <button type="button" :class="{ active: summaryNoteFilter === 'all' }" @click="summaryNoteFilter = 'all'">全部</button>
+              <button type="button" :class="{ active: summaryNoteFilter === 'pinned' }" @click="summaryNoteFilter = 'pinned'">仅置顶</button>
+            </div>
+          </div>
           <div
-            v-for="note in summaryNotes"
+            v-for="note in visibleSummaryNotes"
             :key="note.id"
             class="agent-note-item"
+            :class="{ expanded: expandedSummaryNoteIds.includes(note.id) }"
           >
-            <div class="agent-note-meta">
+            <div class="agent-note-head" @click="toggleSummaryNote(note.id)">
               <div class="agent-note-meta-main">
-                <strong>{{ note.title }}</strong>
+                <strong>
+                  <span v-if="note.pinned" class="agent-note-pin-badge">置顶</span>
+                  {{ note.title }}
+                </strong>
                 <span>{{ note.createdAt }}</span>
               </div>
               <div class="agent-note-actions">
-                <el-button link @click="renameSummaryNote(note)">重命名</el-button>
-                <el-button link type="danger" @click="removeSummaryNote(note)">删除</el-button>
+                <el-button link type="success" @click.stop="toggleSummaryNotePinned(note)">{{ note.pinned ? "取消置顶" : "置顶" }}</el-button>
+                <small class="agent-note-toggle">{{ expandedSummaryNoteIds.includes(note.id) ? "收起" : "展开" }}</small>
+                <el-button link @click.stop="copySummaryNoteContent(note)">复制正文</el-button>
+                <el-button link @click.stop="editSummaryNoteContent(note)">编辑正文</el-button>
+                <el-button link @click.stop="renameSummaryNote(note)">重命名</el-button>
+                <el-button link type="danger" @click.stop="removeSummaryNote(note)">删除</el-button>
               </div>
             </div>
-            <p>{{ note.content }}</p>
+            <div v-if="expandedSummaryNoteIds.includes(note.id)" class="agent-note-body">
+              <div v-if="confidenceLabel(note.answerConfidence)" class="agent-note-confidence-row">
+                <span>结论把握度</span>
+                <strong class="agent-confidence-value" :class="normalizeConfidence(note.answerConfidence)">
+                  {{ confidenceLabel(note.answerConfidence) }}
+                </strong>
+              </div>
+              <div v-if="parseRemainingUncertainties(note.remainingUncertaintiesJson).length" class="agent-note-uncertainty-box">
+                <span>剩余不确定性</span>
+                <ul>
+                  <li v-for="item in parseRemainingUncertainties(note.remainingUncertaintiesJson)" :key="item">{{ item }}</li>
+                </ul>
+              </div>
+              <p>{{ note.content }}</p>
+            </div>
+          </div>
+          <div v-if="!visibleSummaryNotes.length" class="detail-image-empty">
+            当前筛选条件下暂无记录
           </div>
         </div>
         <div v-else class="detail-image-empty">

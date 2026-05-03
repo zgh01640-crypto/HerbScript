@@ -6,6 +6,8 @@ public record AgentStructuredResponse(
         String summary,
         List<String> observations,
         List<String> risks,
-        List<String> suggestions
+        List<String> suggestions,
+        String answerConfidence,
+        List<String> remainingUncertainties
 ) {
 }
