@@ -5,11 +5,13 @@ import AppShell from "../components/AppShell.vue";
 import SectionCard from "../components/SectionCard.vue";
 import { useAsyncState } from "../composables/useAsyncState";
 import { modelConfigService } from "../services/modelConfigService";
-import type { ModelConfigPage, ModelConfigProfile } from "../types/model-config";
+import type { ModelConfigPage, ModelConfigProfile, ModelConfigTestResult } from "../types/model-config";
 
 const { data, loading, run } = useAsyncState<ModelConfigPage>();
 const saving = ref(false);
 const switching = ref<number | null>(null);
+const testingProfileId = ref<number | "draft" | null>(null);
+const latestTestResult = ref<ModelConfigTestResult | null>(null);
 const selectedProfileId = ref<number | null>(null);
 const form = reactive({
   profileId: undefined as number | undefined,
@@ -118,6 +120,41 @@ const activateProfile = async (profile: ModelConfigProfile) => {
   }
 };
 
+const testProfile = async (profile: ModelConfigProfile) => {
+  testingProfileId.value = profile.id;
+  try {
+    latestTestResult.value = await modelConfigService.testConfig({ profileId: profile.id });
+    ElMessage[latestTestResult.value.success ? "success" : "warning"](
+      latestTestResult.value.success ? "模型连接成功" : "模型连接失败"
+    );
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "模型测试失败");
+  } finally {
+    testingProfileId.value = null;
+  }
+};
+
+const testDraftConfig = async () => {
+  testingProfileId.value = "draft";
+  try {
+    latestTestResult.value = await modelConfigService.testConfig({
+      provider: form.provider,
+      doubaoBaseUrl: form.doubaoBaseUrl,
+      doubaoModel: form.doubaoModel,
+      doubaoChatPath: form.doubaoChatPath,
+      doubaoApiKey: form.doubaoApiKey.trim() || undefined,
+      fallbackToMockOnError: form.fallbackToMockOnError
+    });
+    ElMessage[latestTestResult.value.success ? "success" : "warning"](
+      latestTestResult.value.success ? "模型连接成功" : "模型连接失败"
+    );
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "模型测试失败");
+  } finally {
+    testingProfileId.value = null;
+  }
+};
+
 onMounted(() => {
   void loadConfig();
 });
@@ -138,6 +175,17 @@ onMounted(() => {
         <div class="patient-stat-card">
           <span>配置档案</span>
           <strong>{{ profiles.length }} 套</strong>
+        </div>
+      </div>
+
+      <div v-if="latestTestResult" class="model-test-banner" :class="latestTestResult.success ? 'success' : 'error'">
+        <div class="model-test-banner-main">
+          <strong>{{ latestTestResult.success ? "模型在线" : "模型连接失败" }}</strong>
+          <span>{{ latestTestResult.doubaoModel }} · {{ latestTestResult.message }}</span>
+        </div>
+        <div class="model-test-banner-side">
+          <span>{{ latestTestResult.latencyMs }} ms</span>
+          <small v-if="latestTestResult.httpStatus">HTTP {{ latestTestResult.httpStatus }}</small>
         </div>
       </div>
 
@@ -170,14 +218,23 @@ onMounted(() => {
               </div>
               <div class="model-profile-actions">
                 <span>{{ profile.maskedApiKey || "未配置 Key" }}</span>
-                <el-button
-                  v-if="!profile.active"
-                  size="small"
-                  :loading="switching === profile.id"
-                  @click.stop="activateProfile(profile)"
-                >
-                  设为当前
-                </el-button>
+                <div class="model-profile-action-buttons">
+                  <el-button
+                    size="small"
+                    :loading="testingProfileId === profile.id"
+                    @click.stop="testProfile(profile)"
+                  >
+                    测试连接
+                  </el-button>
+                  <el-button
+                    v-if="!profile.active"
+                    size="small"
+                    :loading="switching === profile.id"
+                    @click.stop="activateProfile(profile)"
+                  >
+                    设为当前
+                  </el-button>
+                </div>
               </div>
             </button>
 
@@ -237,6 +294,7 @@ onMounted(() => {
 
           <div class="action-strip">
             <el-button @click="loadConfig">重新读取</el-button>
+            <el-button :loading="testingProfileId === 'draft'" @click="testDraftConfig">测试编辑配置</el-button>
             <el-button type="primary" :loading="saving" @click="saveConfig">保存档案</el-button>
           </div>
         </SectionCard>

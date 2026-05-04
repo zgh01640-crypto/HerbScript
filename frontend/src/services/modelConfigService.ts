@@ -1,5 +1,10 @@
 import { http } from "./http";
-import type { ModelConfigPage, ModelConfigSavePayload } from "../types/model-config";
+import type {
+  ModelConfigPage,
+  ModelConfigSavePayload,
+  ModelConfigTestPayload,
+  ModelConfigTestResult
+} from "../types/model-config";
 
 type ApiResponse<T> = {
   code: number;
@@ -20,6 +25,11 @@ export const modelConfigService = {
 
   async activateConfig(profileId: number): Promise<ModelConfigPage> {
     const response = await http.post<ApiResponse<ModelConfigPage>>("/api/model-config/activate", { profileId });
+    return response.data;
+  },
+
+  async testConfig(payload: ModelConfigTestPayload): Promise<ModelConfigTestResult> {
+    const response = await http.post<ApiResponse<ModelConfigTestResult>>("/api/model-config/test", payload);
     return response.data;
   }
 };

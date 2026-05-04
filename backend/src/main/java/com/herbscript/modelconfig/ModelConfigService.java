@@ -3,13 +3,19 @@ package com.herbscript.modelconfig;
 import com.herbscript.modelconfig.dto.ModelConfigPageResponse;
 import com.herbscript.modelconfig.dto.ModelConfigProfileResponse;
 import com.herbscript.modelconfig.dto.ModelConfigSaveRequest;
+import com.herbscript.modelconfig.dto.ModelConfigTestRequest;
+import com.herbscript.modelconfig.dto.ModelConfigTestResponse;
 import com.herbscript.recognition.config.RecognitionProperties;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
@@ -65,6 +71,88 @@ public class ModelConfigService {
     public ModelConfigPageResponse getConfigPage() {
         Long activeProfileId = getActiveProfileId();
         return new ModelConfigPageResponse(activeProfileId, listProfiles(activeProfileId));
+    }
+
+    public ModelConfigTestResponse testConfig(ModelConfigTestRequest request) {
+        ResolvedModelConfig resolved = resolveTestConfig(request);
+        ModelRuntimeConfig config = resolved.config();
+        if (config.doubaoApiKey() == null || config.doubaoApiKey().isBlank()) {
+            return new ModelConfigTestResponse(
+                    false,
+                    "missing_api_key",
+                    "未配置 API Key，无法完成连通性检测",
+                    0,
+                    null,
+                    config.provider(),
+                    config.doubaoModel(),
+                    config.doubaoBaseUrl(),
+                    resolved.activeProfileUsed()
+            );
+        }
+
+        long startedAt = System.currentTimeMillis();
+        try {
+            RestClient restClient = RestClient.builder()
+                    .baseUrl(config.doubaoBaseUrl())
+                    .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                    .build();
+            String response = restClient.post()
+                    .uri(config.doubaoChatPath())
+                    .header("Authorization", "Bearer " + config.doubaoApiKey())
+                    .body(buildTestRequestBody(config))
+                    .retrieve()
+                    .body(String.class);
+
+            if (response == null || response.isBlank()) {
+                return new ModelConfigTestResponse(
+                        false,
+                        "empty_response",
+                        "模型服务可达，但返回内容为空",
+                        System.currentTimeMillis() - startedAt,
+                        200,
+                        config.provider(),
+                        config.doubaoModel(),
+                        config.doubaoBaseUrl(),
+                        resolved.activeProfileUsed()
+                );
+            }
+
+            return new ModelConfigTestResponse(
+                    true,
+                    "online",
+                    "模型连接成功，已收到有效响应",
+                    System.currentTimeMillis() - startedAt,
+                    200,
+                    config.provider(),
+                    config.doubaoModel(),
+                    config.doubaoBaseUrl(),
+                    resolved.activeProfileUsed()
+            );
+        } catch (RestClientResponseException ex) {
+            return new ModelConfigTestResponse(
+                    false,
+                    mapHttpStatus(ex.getStatusCode().value()),
+                    shorten(ex.getResponseBodyAsString(), "模型返回错误状态"),
+                    System.currentTimeMillis() - startedAt,
+                    ex.getStatusCode().value(),
+                    config.provider(),
+                    config.doubaoModel(),
+                    config.doubaoBaseUrl(),
+                    resolved.activeProfileUsed()
+            );
+        } catch (Exception ex) {
+            return new ModelConfigTestResponse(
+                    false,
+                    "network_error",
+                    shorten(ex.getMessage(), "模型连接失败"),
+                    System.currentTimeMillis() - startedAt,
+                    null,
+                    config.provider(),
+                    config.doubaoModel(),
+                    config.doubaoBaseUrl(),
+                    resolved.activeProfileUsed()
+            );
+        }
     }
 
     @Transactional
@@ -228,5 +316,102 @@ public class ModelConfigService {
             return "已配置";
         }
         return apiKey.substring(0, 4) + "****" + apiKey.substring(apiKey.length() - 4);
+    }
+
+    private ResolvedModelConfig resolveTestConfig(ModelConfigTestRequest request) {
+        if (request != null && request.profileId() != null) {
+            Long profileId = request.profileId();
+            ModelRuntimeConfig config = jdbcTemplate.query(
+                    """
+                    SELECT provider, doubao_base_url, doubao_model, doubao_chat_path, doubao_api_key, fallback_to_mock_on_error
+                    FROM model_profile
+                    WHERE id = ? AND deleted = 0
+                    """,
+                    ps -> ps.setLong(1, profileId),
+                    rs -> rs.next() ? new ModelRuntimeConfig(
+                            rs.getString("provider"),
+                            rs.getString("doubao_base_url"),
+                            rs.getString("doubao_model"),
+                            rs.getString("doubao_chat_path"),
+                            rs.getString("doubao_api_key"),
+                            rs.getBoolean("fallback_to_mock_on_error"),
+                            properties.getUploadDir()
+                    ) : null
+            );
+            if (config != null) {
+                return new ResolvedModelConfig(config, true);
+            }
+        }
+
+        if (request != null && hasAdhocConfig(request)) {
+            return new ResolvedModelConfig(
+                    new ModelRuntimeConfig(
+                            trimOrDefault(request.provider(), properties.getProvider()),
+                            trimOrDefault(request.doubaoBaseUrl(), properties.getDoubaoBaseUrl()),
+                            trimOrDefault(request.doubaoModel(), properties.getDoubaoModel()),
+                            trimOrDefault(request.doubaoChatPath(), properties.getDoubaoChatPath()),
+                            request.doubaoApiKey() == null ? "" : request.doubaoApiKey().trim(),
+                            Boolean.TRUE.equals(request.fallbackToMockOnError()),
+                            properties.getUploadDir()
+                    ),
+                    false
+            );
+        }
+
+        return new ResolvedModelConfig(getRuntimeConfig(), true);
+    }
+
+    private boolean hasAdhocConfig(ModelConfigTestRequest request) {
+        return !isBlank(request.provider())
+                || !isBlank(request.doubaoBaseUrl())
+                || !isBlank(request.doubaoModel())
+                || !isBlank(request.doubaoChatPath())
+                || !isBlank(request.doubaoApiKey());
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String trimOrDefault(String value, String fallback) {
+        return isBlank(value) ? fallback : value.trim();
+    }
+
+    private Map<String, Object> buildTestRequestBody(ModelRuntimeConfig config) {
+        return Map.of(
+                "model", config.doubaoModel(),
+                "temperature", 0,
+                "messages", List.of(
+                        Map.of("role", "system", "content", "你是模型连通性检测助手。"),
+                        Map.of("role", "user", "content", "请只回复 OK")
+                )
+        );
+    }
+
+    private String mapHttpStatus(int statusCode) {
+        if (statusCode == 401 || statusCode == 403) {
+            return "auth_failed";
+        }
+        if (statusCode == 404) {
+            return "invalid_path";
+        }
+        if (statusCode == 429) {
+            return "rate_limited";
+        }
+        if (statusCode >= 500) {
+            return "upstream_error";
+        }
+        return "http_error";
+    }
+
+    private String shorten(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
+    }
+
+    private record ResolvedModelConfig(ModelRuntimeConfig config, boolean activeProfileUsed) {
     }
 }

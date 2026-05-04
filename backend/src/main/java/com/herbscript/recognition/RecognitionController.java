@@ -40,7 +40,7 @@ public class RecognitionController {
         return ApiResponse.success(prescriptionService.getRecognitionDraft(taskId).orElse(null));
     }
 
-    @GetMapping("/{taskId}")
+    @GetMapping("/{taskId:\\d+}")
     public ApiResponse<PrescriptionDetailResponse> detail(@PathVariable Long taskId) {
         return prescriptionService.getRecognitionDraft(taskId)
                 .map(ApiResponse::success)
@@ -53,7 +53,7 @@ public class RecognitionController {
         return ApiResponse.success(recognitionUploadService.uploadAndRecognize(file));
     }
 
-    @PostMapping("/{taskId}/confirm")
+    @PostMapping("/{taskId:\\d+}/confirm")
     public ApiResponse<PrescriptionCreateResponse> confirm(
             @PathVariable Long taskId,
             @Valid @RequestBody RecognitionConfirmRequest request

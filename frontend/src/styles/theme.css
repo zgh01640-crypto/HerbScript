@@ -2271,6 +2271,58 @@ a {
   font-size: 12px;
 }
 
+.model-profile-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-test-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(26, 77, 58, 0.1);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.model-test-banner.success {
+  border-color: rgba(57, 118, 94, 0.22);
+  background: rgba(239, 251, 246, 0.96);
+}
+
+.model-test-banner.error {
+  border-color: rgba(188, 76, 63, 0.18);
+  background: rgba(255, 245, 244, 0.96);
+}
+
+.model-test-banner-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-test-banner-main strong {
+  font-size: 14px;
+}
+
+.model-test-banner-main span {
+  color: var(--hs-text-soft);
+  font-size: 12px;
+}
+
+.model-test-banner-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  color: var(--hs-text-soft);
+  font-size: 12px;
+}
+
 .patient-match-badge {
   display: inline-flex;
   align-items: center;

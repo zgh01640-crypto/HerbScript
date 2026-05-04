@@ -40,19 +40,19 @@ public class PatientController {
         return ApiResponse.success(patientService.list(keyword));
     }
 
-    @GetMapping("/{patientId}")
+    @GetMapping("/{patientId:\\d+}")
     public ApiResponse<PatientDetailResponse> detail(@PathVariable Long patientId) {
         List<PrescriptionSummaryResponse> prescriptions = prescriptionQueryService.listByPatientId(patientId);
         return ApiResponse.success(patientService.getDetail(patientId, prescriptions));
     }
 
-    @PostMapping("/{patientId}/merge")
+    @PostMapping("/{patientId:\\d+}/merge")
     public ApiResponse<Void> merge(@PathVariable Long patientId, @Valid @RequestBody PatientMergeRequest request) {
         patientService.mergePatients(patientId, request);
         return ApiResponse.success(null);
     }
 
-    @GetMapping("/{patientId}/prescriptions")
+    @GetMapping("/{patientId:\\d+}/prescriptions")
     public ApiResponse<List<PrescriptionSummaryResponse>> prescriptions(@PathVariable Long patientId) {
         return ApiResponse.success(prescriptionQueryService.listByPatientId(patientId));
     }

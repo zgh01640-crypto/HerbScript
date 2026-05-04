@@ -30,3 +30,25 @@ export interface ModelConfigSavePayload {
   clearApiKey?: boolean;
   activate?: boolean;
 }
+
+export interface ModelConfigTestPayload {
+  profileId?: number;
+  provider?: string;
+  doubaoBaseUrl?: string;
+  doubaoModel?: string;
+  doubaoChatPath?: string;
+  doubaoApiKey?: string;
+  fallbackToMockOnError?: boolean;
+}
+
+export interface ModelConfigTestResult {
+  success: boolean;
+  status: string;
+  message: string;
+  latencyMs: number;
+  httpStatus?: number;
+  provider: string;
+  doubaoModel: string;
+  doubaoBaseUrl: string;
+  activeProfileUsed: boolean;
+}
