@@ -133,6 +133,20 @@ git pull
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
+如果你想在更新前先做一轮安全检查，可以执行：
+
+```bash
+bash deploy/update-check.sh
+```
+
+这个脚本会帮助你确认：
+
+- 当前 Git 工作区是否干净
+- 是否适合直接 `git pull`
+- `.env.prod` 是否存在
+- `docker-compose.prod.yml` 是否已透传 `SPRING_CORS_ALLOWED_ORIGINS`
+- 当前生产端口和跨域来源配置
+
 ## HTTPS 建议
 
 当前生产文件默认只开放 `80`。
