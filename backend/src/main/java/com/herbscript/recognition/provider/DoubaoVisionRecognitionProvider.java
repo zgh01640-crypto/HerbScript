@@ -22,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 @Component
@@ -67,11 +68,19 @@ public class DoubaoVisionRecognitionProvider implements RecognitionProvider {
                     .retrieve()
                     .body(String.class);
             return parseResponse(response);
+        } catch (RestClientResponseException ex) {
+            if (config.fallbackToMockOnError()) {
+                return mockDraft(fileName);
+            }
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    mapRecognitionError(ex.getStatusCode().value(), ex.getResponseBodyAsString())
+            );
         } catch (Exception ex) {
             if (config.fallbackToMockOnError()) {
                 return mockDraft(fileName);
             }
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Doubao 识别调用失败");
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "模型识别调用失败：" + shorten(ex.getMessage(), "网络或服务异常"));
         }
     }
 
@@ -328,5 +337,33 @@ public class DoubaoVisionRecognitionProvider implements RecognitionProvider {
                 ),
                 "Mock draft for spleen prescription image."
         );
+    }
+
+    private String mapRecognitionError(int statusCode, String body) {
+        String normalized = body == null ? "" : body.replaceAll("\\s+", " ").trim();
+        if (normalized.contains("InvalidSubscription")) {
+            return "模型识别失败：当前账号未开通有效订阅（InvalidSubscription）";
+        }
+        if (statusCode == 401 || statusCode == 403) {
+            return "模型识别失败：API Key 无效或无访问权限";
+        }
+        if (statusCode == 404) {
+            return "模型识别失败：模型接口地址或路径无效";
+        }
+        if (statusCode == 429) {
+            return "模型识别失败：请求过于频繁，请稍后重试";
+        }
+        if (statusCode >= 500) {
+            return "模型识别失败：模型服务暂时不可用";
+        }
+        return "模型识别失败：" + shorten(normalized, "请求被模型服务拒绝");
+    }
+
+    private String shorten(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
     }
 }

@@ -2,6 +2,19 @@ import { resolveApiBaseUrl } from "../utils/runtime";
 
 const API_BASE_URL = resolveApiBaseUrl();
 
+const extractErrorMessage = async (response: Response) => {
+  try {
+    const payload = (await response.json()) as { message?: string };
+    if (payload?.message) {
+      return payload.message;
+    }
+  } catch {
+    // ignore JSON parse errors and fallback to status text below
+  }
+
+  return `请求失败: ${response.status}`;
+};
+
 export const http = {
   async get<T>(path: string, params?: Record<string, string>) {
     const url = new URL(path, API_BASE_URL);
@@ -22,7 +35,7 @@ export const http = {
     });
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      throw new Error(await extractErrorMessage(response));
     }
 
     return (await response.json()) as T;
@@ -40,7 +53,7 @@ export const http = {
     });
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      throw new Error(await extractErrorMessage(response));
     }
 
     return (await response.json()) as T;
@@ -57,7 +70,7 @@ export const http = {
     });
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      throw new Error(await extractErrorMessage(response));
     }
 
     return (await response.json()) as T;
@@ -75,7 +88,7 @@ export const http = {
     });
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      throw new Error(await extractErrorMessage(response));
     }
 
     return (await response.json()) as T;
@@ -92,7 +105,7 @@ export const http = {
     });
 
     if (!response.ok) {
-      throw new Error(`请求失败: ${response.status}`);
+      throw new Error(await extractErrorMessage(response));
     }
 
     return (await response.json()) as T;

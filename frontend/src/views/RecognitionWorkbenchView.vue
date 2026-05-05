@@ -308,7 +308,16 @@ const uploadImage = async (file: File) => {
     hydrateDraft(record);
     void runPatientMatch(true);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : "上传识别失败";
+    const message = error instanceof Error ? error.message : "上传识别失败";
+    if (message.includes("InvalidSubscription") || message.includes("未开通有效订阅")) {
+      errorMessage.value = "模型识别失败：当前账号未开通有效订阅，请先检查模型配置或开通对应套餐。";
+    } else if (message.includes("API Key 无效") || message.includes("无访问权限")) {
+      errorMessage.value = "模型识别失败：API Key 无效或当前账号无访问权限。";
+    } else if (message.includes("接口地址或路径无效")) {
+      errorMessage.value = "模型识别失败：模型接口地址或路径配置不正确。";
+    } else {
+      errorMessage.value = message;
+    }
   } finally {
     submitting.upload = false;
   }

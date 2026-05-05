@@ -14,7 +14,7 @@ import type {
 } from "../types/prescription";
 
 const wait = async (ms = 180) => new Promise((resolve) => setTimeout(resolve, ms));
-const useMock = import.meta.env.VITE_USE_MOCK !== "false";
+const useMock = import.meta.env.VITE_USE_MOCK === "true";
 
 type ApiResponse<T> = {
   code: number;
